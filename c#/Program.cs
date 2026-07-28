@@ -5,6 +5,8 @@ using WmsLogistica.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddCors(options => options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+
 // 1. Configura o Banco de Dados (SQLite neste exemplo)
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite("Data Source=wms.db"));
@@ -14,6 +16,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi(); // Recurso nativo moderno do .NET
 
 var app = builder.Build();
+
+app.UseCors();
 
 // AUTOMAÇÃO: Garante que o banco de dados e as tabelas sejam criados se não existirem
 using (var scope = app.Services.CreateScope())
