@@ -1,0 +1,11 @@
+# Pastas de Build do .NET
+**/bin/
+**/obj/
+
+# Banco de dados local (gerado dinamicamente)
+**/wms.db
+
+# Configurações do VS Code ou IDEs
+.vscode/
+.idea/
+*.user
