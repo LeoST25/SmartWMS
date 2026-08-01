@@ -123,22 +123,56 @@ app.MapScalarApiReference(options => { options.WithTitle("Smart WMS - Clean & Se
 // ROTAS DE AUTENTICAÇÃO (PÚBLICAS)
 // ========================================================
 
-app.MapPost("/api/auth/registrar", async (Usuario novoUsuario, AppDbContext db) =>
+app.MapPost("/api/auth/registrar", async (RegisterModel registro, AppDbContext db) =>
 {
-    var usuarioExiste = await db.Usuarios.AnyAsync(u => u.Username == novoUsuario.Username);
-    if (usuarioExiste) return Results.BadRequest("Este nome de usuário já está em uso.");
+    var username = registro.Username.Trim();
 
-    novoUsuario.PasswordHash = PasswordHasher.HashPassword(novoUsuario.PasswordHash);
+    if (username.Length is < 3 or > 50)
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["username"] = ["O nome de usuário deve possuir entre 3 e 50 caracteres."]
+        });
+    }
+
+    if (registro.Password.Length is < 8 or > 128)
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["password"] = ["A senha deve possuir entre 8 e 128 caracteres."]
+        });
+    }
+
+    var usernameNormalizado = username.ToUpper();
+    var usuarioExiste = await db.Usuarios
+        .AnyAsync(u => u.Username.ToUpper() == usernameNormalizado);
+
+    if (usuarioExiste)
+    {
+        return Results.Conflict("Este nome de usuário já está em uso.");
+    }
+
+    var novoUsuario = new Usuario
+    {
+        Username = username,
+        PasswordHash = PasswordHasher.HashPassword(registro.Password),
+        Role = "Operador"
+    };
 
     db.Usuarios.Add(novoUsuario);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/auth/usuario/{novoUsuario.Id}", new { novoUsuario.Username, novoUsuario.Role });
+    return Results.Created(
+        $"/api/auth/usuario/{novoUsuario.Id}",
+        new { novoUsuario.Username, novoUsuario.Role });
 });
 
 app.MapPost("/api/auth/login", async (LoginModel login, AppDbContext db) =>
 {
-    var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Username == login.Username);
+    var usernameNormalizado = login.Username.Trim().ToUpper();
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Username.ToUpper() == usernameNormalizado);
+
     if (usuario == null) return Results.Unauthorized();
 
     var senhaValida = PasswordHasher.VerifyPassword(login.Password, usuario.PasswordHash);
@@ -245,4 +279,5 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
 
 app.Run();
 
-public record LoginModel(string Username, string Password);
+public sealed record RegisterModel(string Username, string Password);
+public sealed record LoginModel(string Username, string Password);
