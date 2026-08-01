@@ -1,7 +1,9 @@
 import axios from "axios";
 
-// Configura a URL base apontando para a sua API em C# (.NET 10)
-const API_URL = "http://localhost:5000/api";
+// Em produção, configure VITE_API_URL com o endereço público da API.
+const API_URL = (
+  import.meta.env.VITE_API_URL ?? "http://localhost:5000/api"
+).replace(/\/$/, "");
 
 export const api = axios.create({
   baseURL: API_URL,
