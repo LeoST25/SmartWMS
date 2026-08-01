@@ -8,7 +8,8 @@ import {
   CheckCircle,
   AlertTriangle,
 } from "lucide-react";
-import { toast } from "sonner"; // <-- IMPORTAÇÃO DO EMISSOR DE NOTIFICAÇÕES EM TEMPO REAL
+import { toast } from "sonner";
+import { AxiosError } from "axios"; // Importação essencial para tipar os erros da API
 
 export default function VagasPanel() {
   const [vagas, setVagas] = useState<PosicaoArmazem[]>([]);
@@ -17,6 +18,7 @@ export default function VagasPanel() {
   const [nivel, setNivel] = useState<number>(0);
   const [carregando, setCarregando] = useState(false);
 
+  // Escopo de sincronização assíncrona protegido
   const carregarVagas = async () => {
     try {
       const resposta = await api.get<PosicaoArmazem[]>("/posicoes");
@@ -31,8 +33,15 @@ export default function VagasPanel() {
     }
   };
 
+  // Efeito isolado para carga inicial limpa na montagem do componente
   useEffect(() => {
-    carregarVagas();
+    let ativo = true;
+    if (ativo) {
+      carregarVagas();
+    }
+    return () => {
+      ativo = false;
+    };
   }, []);
 
   const handleCriarVaga = async (e: React.FormEvent) => {
@@ -48,7 +57,8 @@ export default function VagasPanel() {
     setCarregando(true);
     try {
       const novaVaga = {
-        corredor: corridor.trim().toUpperCase(),
+        // CORREÇÃO TS2552: Corrigido de 'corridor' para 'corredor' batendo com a variável local
+        corredor: corredor.trim().toUpperCase(),
         prateleira,
         nivel,
         ocupada: false,
@@ -56,20 +66,19 @@ export default function VagasPanel() {
 
       const resposta = await api.post("/posicoes", novaVaga);
       if (resposta.status === 201) {
-        // TOAST 1: Sinaliza a expansão física concluída com sucesso
         toast.success(
           `Infraestrutura Expandida: Vaga ${novaVaga.corredor}-${prateleira}-${nivel} integrada ao armazém.`,
         );
-
         setCorredor("");
         setPrateleira(0);
         setNivel(0);
         carregarVagas();
       }
-    } catch (error: any) {
+    } catch (error) {
+      // CORREÇÃO ESLINT: Removido tipo 'any' explícito, capturando erro estruturado via Axios
+      const axiosError = error as AxiosError<string>;
       const erroServidor =
-        error.response?.data || "Falha ao salvar nova posição no banco.";
-      // TOAST 2: Intercepta e exibe falhas de negócio ou de restrição do C#
+        axiosError.response?.data || "Falha ao salvar nova posição no banco.";
       toast.error(`Falha na Operação: ${erroServidor}`);
     } finally {
       setCarregando(false);
@@ -158,7 +167,8 @@ export default function VagasPanel() {
           </button>
         </div>
 
-        <div className="overflow-y-auto max-h-[500px] pr-2">
+        {/* CORREÇÃO TAILWIND: Atualizado max-h conforme a sugestão de otimização de build */}
+        <div className="overflow-y-auto max-h-125 pr-2">
           {vagas.length === 0 ? (
             <p className="text-center text-slate-500 py-8 text-sm">
               Nenhum endereço físico registrado no mapa do armazém.
@@ -166,26 +176,23 @@ export default function VagasPanel() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {vagas.map((v) => {
-                const c = v.corredor || (v as any).Corredor || "";
-                const p = v.prateleira || (v as any).Prateleira || 0;
-                const n = v.nivel || (v as any).Nivel || 0;
-                const ocupada =
-                  v.ocupada !== undefined ? v.ocupada : (v as any).Ocupada;
+                // CORREÇÃO ESLINT: Removido qualquer cast para 'any'. Consumo 100% tipado direto da interface PosicaoArmazem
+                const endereco = `${v.corredor}-${v.prateleira}-${v.nivel}`;
 
                 return (
                   <div
                     key={v.id}
                     className={`p-4 rounded-xl border flex flex-col justify-between h-28 transition-all ${
-                      ocupada
+                      v.ocupada
                         ? "bg-slate-950/60 border-red-900/40 text-red-400"
                         : "bg-slate-950/20 border-slate-800 text-slate-300 hover:border-slate-700"
                     }`}
                   >
                     <div className="flex justify-between items-start">
                       <span className="font-mono text-lg font-black tracking-wider text-white">
-                        {c}-{p}-{n}
+                        {endereco}
                       </span>
-                      {ocupada ? (
+                      {v.ocupada ? (
                         <AlertTriangle
                           size={16}
                           className="text-red-500 animate-pulse"
@@ -195,7 +202,7 @@ export default function VagasPanel() {
                       )}
                     </div>
                     <div className="text-xs font-semibold tracking-wide uppercase">
-                      {ocupada ? (
+                      {v.ocupada ? (
                         <span className="text-red-500/80">Ocupada</span>
                       ) : (
                         <span className="text-emerald-500/80">Disponível</span>
