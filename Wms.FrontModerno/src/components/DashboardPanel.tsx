@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react"; // Adicionado useMemo
 import { api } from "../services/api";
 import type { PosicaoArmazem } from "../types/wms";
 import {
@@ -38,7 +38,9 @@ export default function DashboardPanel() {
       } catch (error) {
         if (isMounted) {
           console.error(error);
-          toast.error("Erro de barramento ao sincronizar indicadores logísticos.");
+          toast.error(
+            "Erro de barramento ao sincronizar indicadores logísticos.",
+          );
         }
       } finally {
         if (isMounted) {
@@ -54,53 +56,61 @@ export default function DashboardPanel() {
     };
   }, []);
 
+  const metricas = useMemo(() => {
+    const totalVagas = vagas.length;
+    const vagasOcupadas = vagas.filter((v) => v.ocupada).length;
+    const vagasLivres = totalVagas - vagasOcupadas;
+    const taxaOcupacao =
+      totalVagas > 0 ? Math.round((vagasOcupadas / totalVagas) * 100) : 0;
+
+    const dadosPizza = [
+      { name: "Espaços Livres", value: vagasLivres },
+      { name: "Espaços Ocupados", value: vagasOcupadas },
+    ];
+
+    const contagemCorredores: {
+      [key: string]: { livres: number; ocupadas: number };
+    } = {};
+
+    vagas.forEach((v) => {
+      const corr = v.corredor || "Desconhecido";
+      if (!contagemCorredores[corr]) {
+        contagemCorredores[corr] = { livres: 0, ocupadas: 0 };
+      }
+      if (v.ocupada) {
+        contagemCorredores[corr].ocupadas++;
+      } else {
+        contagemCorredores[corr].livres++;
+      }
+    });
+
+    const dadosBarras = Object.keys(contagemCorredores).map((key) => ({
+      corredor: `Corredor ${key}`,
+      "Vagas Livres": contagemCorredores[key].livres,
+      "Vagas Ocupadas": contagemCorredores[key].ocupadas,
+    }));
+
+    return {
+      totalVagas,
+      vagasLivres,
+      vagasOcupadas,
+      taxaOcupacao,
+      dadosPizza,
+      dadosBarras,
+    };
+  }, [vagas]);
+
   if (carregando) {
     return (
-      <p className="text-center text-slate-500 py-12 text-sm">
-        Calculando algoritmos e KPIs...
-      </p>
+      <div className="w-full flex items-center justify-center py-12">
+        <p className="text-center text-slate-500 text-sm animate-pulse">
+          Calculando algoritmos e KPIs...
+        </p>
+      </div>
     );
   }
 
-  // 🧠 Algoritmos de processamento de dados para os gráficos
-  const totalVagas = vagas.length;
-  const vagasOcupadas = vagas.filter(
-    (v) => v.ocupada || (v as PosicaoArmazem & { Ocupada?: boolean }).Ocupada,
-  ).length;
-  const vagasLivres = totalVagas - vagasOcupadas;
-  const taxaOcupacao =
-    totalVagas > 0 ? Math.round((vagasOcupadas / totalVagas) * 100) : 0;
-
-  // Formata os dados para o Gráfico de Pizza (Ocupação Geral)
-  const dadosPizza = [
-    { name: "Espaços Livres", value: vagasLivres },
-    { name: "Espaços Ocupados", value: vagasOcupadas },
-  ];
-  const CORES_PIE = ["#10b981", "#ef4444"]; // Verde e Vermelho corporativos
-
-  // Agrupa e conta a densidade de ocupação por Corredor do armazém (Gráfico de Barras)
-  const contagemCorredores: {
-    [key: string]: { livres: number; ocupadas: number };
-  } = {};
-  vagas.forEach((v) => {
-    const corr = v.corredor || (v as PosicaoArmazem & { Corredor?: string }).Corredor || "Desconhecido";
-    const ocup = v.ocupada !== undefined ? v.ocupada : (v as PosicaoArmazem & { Ocupada?: boolean }).Ocupada;
-
-    if (!contagemCorredores[corr]) {
-      contagemCorredores[corr] = { livres: 0, ocupadas: 0 };
-    }
-    if (ocup) {
-      contagemCorredores[corr].ocupadas++;
-    } else {
-      contagemCorredores[corr].livres++;
-    }
-  });
-
-  const dadosBarras = Object.keys(contagemCorredores).map((key) => ({
-    corredor: `Corredor ${key}`,
-    "Vagas Livres": contagemCorredores[key].livres,
-    "Vagas Ocupadas": contagemCorredores[key].ocupadas,
-  }));
+  const CORES_PIE = ["#10b981", "#ef4444"];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -112,7 +122,7 @@ export default function DashboardPanel() {
               Capacidade Total
             </span>
             <h4 className="text-2xl font-black text-white mt-1">
-              {totalVagas} vagas
+              {metricas.totalVagas} vagas
             </h4>
           </div>
           <div className="p-3 bg-slate-950 rounded-xl text-blue-500 border border-slate-800/40">
@@ -126,7 +136,7 @@ export default function DashboardPanel() {
               Disponibilidade
             </span>
             <h4 className="text-2xl font-black text-emerald-400 mt-1">
-              {vagasLivres} livres
+              {metricas.vagasLivres} livres
             </h4>
           </div>
           <div className="p-3 bg-slate-950 rounded-xl text-emerald-500 border border-slate-800/40">
@@ -140,7 +150,7 @@ export default function DashboardPanel() {
               Bloqueio / Carga
             </span>
             <h4 className="text-2xl font-black text-rose-400 mt-1">
-              {vagasOcupadas} ocupadas
+              {metricas.vagasOcupadas} ocupadas
             </h4>
           </div>
           <div className="p-3 bg-slate-950 rounded-xl text-rose-500 border border-slate-800/40">
@@ -154,7 +164,7 @@ export default function DashboardPanel() {
               Taxa de Ocupação
             </span>
             <h4 className="text-2xl font-black text-blue-400 mt-1">
-              {taxaOcupacao}%
+              {metricas.taxaOcupacao}%
             </h4>
           </div>
           <div className="p-3 bg-slate-950 rounded-xl text-blue-500 border border-slate-800/40">
@@ -177,7 +187,7 @@ export default function DashboardPanel() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={dadosPizza}
+                  data={metricas.dadosPizza}
                   cx="50%"
                   cy="50%"
                   innerRadius={60}
@@ -185,7 +195,7 @@ export default function DashboardPanel() {
                   paddingAngle={5}
                   dataKey="value"
                 >
-                  {dadosPizza.map((_, index) => (
+                  {metricas.dadosPizza.map((_, index) => (
                     <Cell
                       key={`cell-${index}`}
                       fill={CORES_PIE[index % CORES_PIE.length]}
@@ -211,7 +221,7 @@ export default function DashboardPanel() {
           </div>
         </div>
 
-        {/* Gráfico 2: Volumetria por Corredor (Barras Empilhadas) */}
+        {/* Gráfico 2: Volumetria por Corredor */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
           <div className="w-full flex items-center gap-2 mb-4 border-b border-slate-800/60 pb-3">
             <BarChart3 className="text-blue-500" size={18} />
@@ -222,7 +232,7 @@ export default function DashboardPanel() {
           <div className="w-full h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={dadosBarras}
+                data={metricas.dadosBarras}
                 margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
               >
                 <XAxis
@@ -246,18 +256,8 @@ export default function DashboardPanel() {
                     </span>
                   )}
                 />
-                <Bar
-                  dataKey="Vagas Livres"
-                  stackId="a"
-                  fill="#10b981"
-                  radius={[0, 0, 0, 0]}
-                />
-                <Bar
-                  dataKey="Vagas Ocupadas"
-                  stackId="a"
-                  fill="#ef4444"
-                  radius={[4, 4, 0, 0]}
-                />
+                <Bar dataKey="Vagas Livres" stackId="a" fill="#10b981" />
+                <Bar dataKey="Vagas Ocupadas" stackId="a" fill="#ef4444" />
               </BarChart>
             </ResponsiveContainer>
           </div>
