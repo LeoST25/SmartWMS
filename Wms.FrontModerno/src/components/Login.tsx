@@ -13,7 +13,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [role, setRole] = useState("Operador");
   const [carregando, setCarregando] = useState(false);
 
-  // Envia as credenciais para a API autenticadora em C#
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setCarregando(true);
@@ -30,26 +29,27 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         localStorage.setItem("wms_user", dados.usuario);
         localStorage.setItem("wms_role", dados.nivelAcesso);
 
-        toast.success(`Acesso autorizado! Bem vindo, ${dados.usuario}.`);
+        toast.success(`Acesso autorizado! Bem-vindo, ${dados.usuario}.`);
         onLoginSuccess();
       }
     } catch (error) {
-      toast.error("Falha na autenticação: Nome de usuário ou senha incorretos.");
+      toast.error(
+        "Falha na autenticação: Credenciais incorretas ou inválidas.",
+      );
     } finally {
       setCarregando(false);
     }
   };
 
-  // Cadastra um novo operador ou gerente real no banco SQLite via API
   const handleRegistro = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (username.trim().length < 3) {
-      toast.warning("O nome de usuário deve ter no mínimo 3 caracteres.");
+      toast.warning("O nome de usuário deve conter no mínimo 3 caracteres.");
       return;
     }
     if (password.length < 6) {
-      toast.warning("A senha deve possuir no mínimo 6 caracteres.");
+      toast.warning("A senha corporativa deve conter no mínimo 6 caracteres.");
       return;
     }
 
@@ -62,15 +62,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       });
 
       if (response.status === 201) {
-        toast.success(
-          "Operador cadastrado com sucesso na base.",
-        );
+        toast.success("Operador logístico registrado com sucesso na base!");
         setIsLogin(true);
       }
     } catch (error: any) {
       const msg =
-        error.response?.data ||
-        "Erro interno ao processar registro do operador.";
+        error.response?.data || "Erro de barramento ao registrar operador.";
       toast.error(msg);
     } finally {
       setCarregando(false);
@@ -78,7 +75,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 p-4">
+    /* CORREÇÃO: Força o contêiner a ocupar a tela inteira em modo absoluto e centralizar tudo no meio */
+    <div className="absolute inset-0 w-screen h-screen flex items-center justify-center bg-slate-950 p-4">
       <div className="w-full max-w-md rounded-2xl bg-slate-900 p-8 shadow-2xl border border-slate-800 transition-all duration-300">
         <div className="text-center mb-8">
           <span className="text-5xl block mb-2">📦</span>
@@ -124,7 +122,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             />
           </div>
 
-          {/* Controle de Autorização por Perfil (Roles) */}
           {!isLogin && (
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
@@ -139,7 +136,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   Operador Logístico (Leitura de Inventário)
                 </option>
                 <option value="Gerente">
-                  Gerente de Inventário (Acesso Administrativo Total)
+                  Gerente de Inventário (Acesso Administrative Total)
                 </option>
               </select>
             </div>
@@ -158,7 +155,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           </button>
         </form>
 
-        {/* Alternador de Contexto */}
         <div className="text-center mt-6 pt-4 border-t border-slate-800">
           <button
             onClick={() => {
