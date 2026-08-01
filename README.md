@@ -46,3 +46,5 @@ npm install
 npm run dev
 ```
 👉 *Painel de controle visual do operador:* `http://localhost:5173`
+
+Deploy: https://smart-wms-frontend.onrender.com/
