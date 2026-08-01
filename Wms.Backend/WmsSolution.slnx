@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Wms.API/Wms.API.csproj" />
+  <Project Path="Wms.Application/Wms.Application.csproj" />
+  <Project Path="Wms.Domain/Wms.Domain.csproj" />
+  <Project Path="Wms.Infrastructure/Wms.Infrastructure.csproj" />
+</Solution>
