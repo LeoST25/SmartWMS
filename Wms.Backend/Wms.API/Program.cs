@@ -17,13 +17,31 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // 1. Configuração do Banco de Dados (SQLite)
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite("Data Source=wms_clean.db"));
+var bancoCaminho = Environment.GetEnvironmentVariable("DATABASE_PATH")
+    ?? Path.Combine(Path.GetTempPath(), "wms_clean.db");
 
-// 2. Configuração do CORS (Liberação para o Front-end)
-var bancoCaminho = Path.Combine(Path.GetTempPath(), "wms_clean.db");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite($"Data Source={bancoCaminho}"));
+
+// 2. Configuração do CORS (Liberação restrita para o Front-end)
+const string politicaCors = "Frontend";
+
+var origensPermitidas = (
+    Environment.GetEnvironmentVariable("CORS_ORIGINS")
+    ?? "http://localhost:5173"
+)
+.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(politicaCors, policy =>
+    {
+        policy
+            .WithOrigins(origensPermitidas)
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 
 // 3. CONFIGURAÇÃO DE SEGURANÇA: Autenticação JWT
 var key = Encoding.ASCII.GetBytes(TokenService.SecretKey);
@@ -74,7 +92,7 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.UseCors();
+app.UseCors(politicaCors);
 app.UseAuthentication(); // Obrigatório antes do Authorization
 app.UseAuthorization();
 
