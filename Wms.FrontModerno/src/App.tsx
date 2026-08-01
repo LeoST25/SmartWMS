@@ -21,23 +21,31 @@ function isAbaValida(aba: string): aba is Aba {
   return ABAS_VALIDAS.includes(aba as Aba);
 }
 
+function readStoredSession(): {
+  logado: boolean;
+  usuario: string;
+  role: string;
+} {
+  const token = localStorage.getItem("wms_token");
+  const usuario = localStorage.getItem("wms_user") ?? "";
+  const role = localStorage.getItem("wms_role") ?? "";
+
+  return {
+    logado: Boolean(token && usuario && role),
+    usuario,
+    role,
+  };
+}
+
+const INITIAL_SESSION = readStoredSession();
+
 export default function App(): JSX.Element {
-  const [logado, setLogado] = useState<boolean>(false);
-  const [usuario, setUsuario] = useState<string>("");
-  const [role, setRole] = useState<string>("");
+  const [logado, setLogado] = useState<boolean>(INITIAL_SESSION.logado);
+  const [usuario, setUsuario] = useState<string>(INITIAL_SESSION.usuario);
+  const [role, setRole] = useState<string>(INITIAL_SESSION.role);
   const [abaAtiva, setAbaAtiva] = useState<Aba>("produtos");
 
   useEffect(() => {
-    const token = localStorage.getItem("wms_token");
-    const user = localStorage.getItem("wms_user");
-    const userRole = localStorage.getItem("wms_role");
-
-    if (token && user && userRole) {
-      setLogado(true);
-      setUsuario(user);
-      setRole(userRole);
-    }
-
     const handleUnauthorized = (): void => {
       setLogado(false);
       setUsuario("");
