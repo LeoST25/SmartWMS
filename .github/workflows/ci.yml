@@ -33,6 +33,14 @@ jobs:
       - name: Restore
         run: dotnet restore Wms.Backend/WmsSolution.slnx
 
+      - name: Audit dependencies
+        shell: bash
+        run: |
+          dotnet list Wms.Backend/WmsSolution.slnx package --vulnerable --include-transitive | tee dependency-audit.txt
+          if grep -q "has the following vulnerable packages" dependency-audit.txt; then
+            exit 1
+          fi
+
       - name: Build
         run: dotnet build Wms.Backend/WmsSolution.slnx --configuration Release --no-restore
 
