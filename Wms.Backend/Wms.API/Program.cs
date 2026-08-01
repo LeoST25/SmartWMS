@@ -161,7 +161,6 @@ app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpCo
     var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
 
     posicaoLivre.Ocupada = true;
-    novoProduto.PoshemId = posicaoLivre.Id; // Nota: Mapeado internamente no relacionamento
     novoProduto.PosicaoArmazemId = posicaoLivre.Id;
     novoProduto.Posicao = null;
 
@@ -228,4 +227,3 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
 app.Run();
 
 public record LoginModel(string Username, string Password);
-    
