@@ -11,33 +11,23 @@ using WmsLogistica.Models;
 Environment.SetEnvironmentVariable("ASPNETCORE_URLS", "http://localhost:5000");
 
 var builder = WebApplication.CreateBuilder(args);
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
+                       ?? Environment.GetEnvironmentVariable("DATABASE_URL");
 
 // 1. Configuração do Banco de Dados (SQLite)
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite("Data Source=wms_clean.db"));
-
-// 2. Configuração do CORS (Liberação para o Front-end)
-builder.Services.AddCors(options => 
-    options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
-
-// 3. CONFIGURAÇÃO DE SEGURANÇA: Autenticação JWT
-var key = Encoding.ASCII.GetBytes(TokenService.SecretKey);
-builder.Services.AddAuthentication(x =>
 {
-    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(x =>
-{
-    x.RequireHttpsMetadata = false;
-    x.SaveToken = true;
-    x.TokenValidationParameters = new TokenValidationParameters
+    if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("Host="))
     {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(key),
-        ValidateIssuer = false,
-        ValidateAudience = false
-    };
+        // Se houver dados do PostgreSQL, usa o Npgsql
+        options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Wms.API"));
+    }
+    else
+    {
+        // Fallback de segurança para desenvolvimento local offline
+        var bancoCaminho = Path.Combine(Path.GetTempPath(), "wms_clean.db");
+        options.UseSqlite($"Data Source={bancoCaminho}");
+    }
 });
 
 builder.Services.AddAuthorization();
