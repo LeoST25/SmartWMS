@@ -11,23 +11,36 @@ public class AppDbContext : DbContext
     public DbSet<Produto> Produtos => Set<Produto>();
     public DbSet<PosicaoArmazem> PosicoesArmazem => Set<PosicaoArmazem>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
-    public DbSet<HistoricoMovimentacao> HistoricosMovimentacao => Set<HistoricoMovimentacao>(); // Nova Tabela
+    public DbSet<HistoricoMovimentacao> HistoricosMovimentacao =>
+        Set<HistoricoMovimentacao>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
-{
-    base.OnModelCreating(modelBuilder);
+    {
+        base.OnModelCreating(modelBuilder);
 
-    // Configuração Sênior de Relacionamento Híbrido para PostgreSQL
-    modelBuilder.Entity<Produto>()
-        .HasOne(p => p.Posicao)
-        .WithMany()
-        .HasForeignKey(p => p.PosicaoArmazemId)
-        .IsRequired(false) // Define que o produto não exige uma vaga obrigatória no ato do cadastro
-        .OnDelete(DeleteBehavior.SetNull); // Se a vaga for excluída, o produto permanece na Doca
+        var produto = modelBuilder.Entity<Produto>();
 
-    // Garante que o SKU permaneça único no cluster do PostgreSQL
-    modelBuilder.Entity<Produto>()
-        .HasIndex(p => p.Sku)
-        .IsUnique();
-}
+        produto
+            .HasOne(p => p.Posicao)
+            .WithMany()
+            .HasForeignKey(p => p.PosicaoArmazemId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        produto
+            .HasIndex(p => p.Sku)
+            .IsUnique();
+
+        produto
+            .HasIndex(p => p.PosicaoArmazemId)
+            .IsUnique();
+
+        modelBuilder.Entity<Usuario>()
+            .HasIndex(u => u.Username)
+            .IsUnique();
+
+        modelBuilder.Entity<PosicaoArmazem>()
+            .HasIndex(p => new { p.Corredor, p.Prateleira, p.Nivel })
+            .IsUnique();
+    }
 }
