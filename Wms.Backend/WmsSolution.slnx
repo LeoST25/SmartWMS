@@ -3,4 +3,5 @@
   <Project Path="Wms.Application/Wms.Application.csproj" />
   <Project Path="Wms.Domain/Wms.Domain.csproj" />
   <Project Path="Wms.Infrastructure/Wms.Infrastructure.csproj" />
+  <Project Path="Wms.Tests/Wms.Tests.csproj" />
 </Solution>
