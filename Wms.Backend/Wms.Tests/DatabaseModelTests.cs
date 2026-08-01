@@ -56,8 +56,8 @@ public class DatabaseModelTests
         IEntityType entity,
         params string[] propertyNames)
     {
-        return Assert.Single(entity.GetIndexes().Where(index =>
+        return Assert.Single(entity.GetIndexes(), index =>
             index.Properties.Select(property => property.Name)
-                .SequenceEqual(propertyNames)));
+                .SequenceEqual(propertyNames));
     }
 }
