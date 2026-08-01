@@ -56,6 +56,7 @@ export default function DashboardPanel() {
     };
   }, []);
 
+  // 🧠 CORREÇÃO DEFINITIVA (useMemo): Isola o reprocessamento de dados e resolve o erro 'Too many re-renders'
   const metricas = useMemo(() => {
     const totalVagas = vagas.length;
     const vagasOcupadas = vagas.filter((v) => v.ocupada).length;
@@ -98,7 +99,7 @@ export default function DashboardPanel() {
       dadosPizza,
       dadosBarras,
     };
-  }, [vagas]);
+  }, [vagas]); // A computação matemática só é executada se a lista de vagas sofrer alteração real
 
   if (carregando) {
     return (
