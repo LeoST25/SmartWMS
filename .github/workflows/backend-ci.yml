@@ -1,0 +1,63 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Wms.Backend/**"
+      - "Dockerfile"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "Wms.Backend/**"
+      - "Dockerfile"
+      - ".github/workflows/backend-ci.yml"
+
+permissions:
+  contents: read
+
+env:
+  API_PROJECT: Wms.Backend/Wms.API/Wms.API.csproj
+
+jobs:
+  quality-gates:
+    name: Restore, build, test and containerize
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore "$API_PROJECT"
+
+      - name: Build
+        run: dotnet build "$API_PROJECT" --configuration Release --no-restore
+
+      - name: Test available projects
+        shell: bash
+        run: |
+          mapfile -t test_projects < <(
+            find Wms.Backend -type f \
+              \( -name '*Tests.csproj' -o -name '*Test.csproj' \)
+          )
+
+          if (( ${#test_projects[@]} == 0 )); then
+            echo "No test projects found; build and container gates remain active."
+            exit 0
+          fi
+
+          for project in "${test_projects[@]}"; do
+            dotnet test "$project" --configuration Release --no-restore --verbosity normal
+          done
+
+      - name: Build Docker image
+        run: docker build --tag smartwms-api:ci .
