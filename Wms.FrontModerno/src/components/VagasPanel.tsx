@@ -8,6 +8,7 @@ import {
   CheckCircle,
   AlertTriangle,
 } from "lucide-react";
+import { toast } from "sonner"; // <-- IMPORTAÇÃO DO EMISSOR DE NOTIFICAÇÕES EM TEMPO REAL
 
 export default function VagasPanel() {
   const [vagas, setVagas] = useState<PosicaoArmazem[]>([]);
@@ -16,16 +17,17 @@ export default function VagasPanel() {
   const [nivel, setNivel] = useState<number>(0);
   const [carregando, setCarregando] = useState(false);
 
-  // Busca as vagas físicas cadastradas na API do C#
   const carregarVagas = async () => {
     try {
       const resposta = await api.get<PosicaoArmazem[]>("/posicoes");
-      // Garante que os dados recebidos sejam um array válido
       if (Array.isArray(resposta.data)) {
         setVagas(resposta.data);
       }
     } catch (error) {
       console.error("Erro ao carregar mapa de posições:", error);
+      toast.error(
+        "Erro de rede ao tentar sincronizar o mapa de endereçamento.",
+      );
     }
   };
 
@@ -33,18 +35,20 @@ export default function VagasPanel() {
     carregarVagas();
   }, []);
 
-  // Cadastra uma nova vaga física via POST assíncrono com o JWT automático
   const handleCriarVaga = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!corredor || prateleira <= 0 || nivel <= 0) {
-      alert("Preencha todos os campos com valores maiores que zero.");
+
+    if (!corredor.trim() || prateleira <= 0 || nivel <= 0) {
+      toast.warning(
+        "Validação de Campos: Insira valores válidos e maiores que zero.",
+      );
       return;
     }
 
     setCarregando(true);
     try {
       const novaVaga = {
-        corredor: corredor.toUpperCase(),
+        corredor: corridor.trim().toUpperCase(),
         prateleira,
         nivel,
         ocupada: false,
@@ -52,20 +56,28 @@ export default function VagasPanel() {
 
       const resposta = await api.post("/posicoes", novaVaga);
       if (resposta.status === 201) {
+        // TOAST 1: Sinaliza a expansão física concluída com sucesso
+        toast.success(
+          `Infraestrutura Expandida: Vaga ${novaVaga.corredor}-${prateleira}-${nivel} integrada ao armazém.`,
+        );
+
         setCorredor("");
         setPrateleira(0);
         setNivel(0);
-        carregarVagas(); // Sincroniza o grid visual na hora
+        carregarVagas();
       }
     } catch (error: any) {
-      alert("Erro ao cadastrar novo espaço físico.");
+      const erroServidor =
+        error.response?.data || "Falha ao salvar nova posição no banco.";
+      // TOAST 2: Intercepta e exibe falhas de negócio ou de restrição do C#
+      toast.error(`Falha na Operação: ${erroServidor}`);
     } finally {
       setCarregando(false);
     }
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start animate-fade-in">
       {/* Formulário de Cadastro de Vagas */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex items-center gap-2 mb-6">
@@ -93,7 +105,7 @@ export default function VagasPanel() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                Prateleira
+                Prat.
               </label>
               <input
                 type="number"
@@ -154,7 +166,6 @@ export default function VagasPanel() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {vagas.map((v) => {
-                // Defesas de mapeamento para propriedades minúsculas/maiúsculas do JSON
                 const c = v.corredor || (v as any).Corredor || "";
                 const p = v.prateleira || (v as any).Prateleira || 0;
                 const n = v.nivel || (v as any).Nivel || 0;
