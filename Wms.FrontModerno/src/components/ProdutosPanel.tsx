@@ -250,8 +250,6 @@ export default function ProdutosPanel({
                       <td className="py-4 font-mono font-bold text-blue-400 text-base">
                         {endereco}
                       </td>
-                      // Substitua o botão de despacho antigo por este que
-                      valida o cargo localmente:
                       <td className="py-4 text-right">
                         {localStorage.getItem("wms_role") === "Gerente" ? (
                           <button
