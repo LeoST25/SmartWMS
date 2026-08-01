@@ -44,13 +44,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(connectionString);
 });
 
-// 2. CORREÇÃO CRÍTICA DO CORS: Mapeamento explícito das origens de desenvolvimento e produção corporativa
 builder.Services.AddCors(options => 
 {
     options.AddPolicy("WmsCorsPolicy", p => p
         .WithOrigins(
-            "https://smart-wms-frontend.onrender.com", // Seu domínio oficial do Front-end na nuvem
-            "http://localhost:5173",                   // Seu ambiente de testes local do Vite
+            "https://smart-wms-frontend.onrender.com",
+            "http://localhost:5173",
+            "http://localhost:5174",
             "http://localhost:3000"
         )
         .AllowAnyHeader()
@@ -121,18 +121,17 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Inicialização determinística da infraestrutura
-using (var scope = app.Services.CreateScope())
+using var scope = app.Services.CreateScope();
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-    if (usePostgres)
+    if (db.Database.IsSqlite())
     {
-        db.Database.Migrate();
+        db.Database.EnsureCreated();
     }
     else
     {
-        db.Database.EnsureCreated();
+        db.Database.Migrate();
     }
 
     if (!string.IsNullOrWhiteSpace(bootstrapAdminUsername)
