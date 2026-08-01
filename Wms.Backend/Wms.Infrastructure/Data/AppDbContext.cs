@@ -14,10 +14,20 @@ public class AppDbContext : DbContext
     public DbSet<HistoricoMovimentacao> HistoricosMovimentacao => Set<HistoricoMovimentacao>(); // Nova Tabela
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<Produto>().HasIndex(p => p.Sku).IsUnique();
-        modelBuilder.Entity<Usuario>().HasIndex(u => u.Username).IsUnique();
-            
-        base.OnModelCreating(modelBuilder);
-    }
+{
+    base.OnModelCreating(modelBuilder);
+
+    // Configuração Sênior de Relacionamento Híbrido para PostgreSQL
+    modelBuilder.Entity<Produto>()
+        .HasOne(p => p.Posicao)
+        .WithMany()
+        .HasForeignKey(p => p.PosicaoArmazemId)
+        .IsRequired(false) // Define que o produto não exige uma vaga obrigatória no ato do cadastro
+        .OnDelete(DeleteBehavior.SetNull); // Se a vaga for excluída, o produto permanece na Doca
+
+    // Garante que o SKU permaneça único no cluster do PostgreSQL
+    modelBuilder.Entity<Produto>()
+        .HasIndex(p => p.Sku)
+        .IsUnique();
+}
 }
