@@ -51,6 +51,22 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
+
+    // Se não houver nenhuma vaga física cadastrada, cria automaticamente um setor inicial de testes
+    if (!db.PosicoesArmazem.Any())
+    {
+        var vagasPadrao = new List<PosicaoArmazem>
+        {
+            new() { Corredor = "A", Prateleira = 1, Nivel = 1, Ocupada = false },
+            new() { Corredor = "A", Prateleira = 1, Nivel = 2, Ocupada = false },
+            new() { Corredor = "A", Prateleira = 2, Nivel = 1, Ocupada = false },
+            new() { Corredor = "B", Prateleira = 1, Nivel = 1, Ocupada = false },
+            new() { Corredor = "B", Prateleira = 1, Nivel = 2, Ocupada = false }
+        };
+
+        db.PosicoesArmazem.AddRange(vagasPadrao);
+        db.SaveChanges();
+    }
 }
 
 app.UseCors();
@@ -102,6 +118,10 @@ app.MapGet("/api/produtos", async (AppDbContext db) =>
     await db.Produtos.Include(p => p.Posicao).ToListAsync())
     .RequireAuthorization(); // Exige o Token no cabeçalho
 
+    app.MapGet("/api/posicoes", async (AppDbContext db) =>
+    await db.PosicoesArmazem.ToListAsync())
+    .RequireAuthorization();
+
 app.MapPost("/api/posicoes", async (PosicaoArmazem novaPosicao, AppDbContext db) =>
 {
     db.PosicoesArmazem.Add(novaPosicao);
@@ -147,6 +167,33 @@ app.MapGet("/api/logistica/auditoria", async (AppDbContext db) =>
         .ToListAsync();
 
     return Results.Ok(relatorio);
+}).RequireAuthorization();
+
+app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db) =>
+{
+    // Busca o produto trazendo os dados da vaga física associada
+    var produto = await db.Produtos
+        .Include(p => p.Posicao)
+        .FirstOrDefaultAsync(p => p.Sku.ToLower() == sku.ToLower());
+
+    if (produto == null)
+    {
+        return Results.NotFound($"Produto com SKU '{sku}' não localizado.");
+    }
+
+    // Se o produto estiver em uma vaga, marca a vaga física como LIVRE
+    if (produto.Posicao != null)
+    {
+        produto.Posicao.Ocupada = false;
+    }
+
+    // Remove o registro da mercadoria
+    db.Produtos.Remove(produto);
+    
+    // Salva todas as alterações no SQLite de forma atômica
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { Mensagem = $"Carga {sku} despachada com sucesso!" });
 }).RequireAuthorization();
 
 app.Run();
