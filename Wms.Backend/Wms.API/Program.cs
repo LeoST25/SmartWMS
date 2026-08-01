@@ -50,22 +50,41 @@ builder.Services.AddCors(options =>
 });
 
 // 3. CONFIGURAÇÃO DE SEGURANÇA: Autenticação & Autorização JWT
-var key = Encoding.ASCII.GetBytes(TokenService.SecretKey);
-builder.Services.AddAuthentication(x =>
+var jwtSecret = builder.Configuration["Jwt:SecretKey"]
+    ?? throw new InvalidOperationException(
+        "A configuração obrigatória 'Jwt:SecretKey' não foi definida. Use a variável de ambiente Jwt__SecretKey.");
+
+if (Encoding.UTF8.GetByteCount(jwtSecret) < 32)
 {
-    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    throw new InvalidOperationException("A chave JWT deve possuir pelo menos 32 bytes.");
+}
+
+var jwtSettings = new JwtSettings(
+    jwtSecret,
+    builder.Configuration["Jwt:Issuer"] ?? "SmartWMS.API",
+    builder.Configuration["Jwt:Audience"] ?? "SmartWMS.Frontend",
+    builder.Configuration.GetValue<int?>("Jwt:ExpirationHours") ?? 4);
+
+var key = Encoding.UTF8.GetBytes(jwtSettings.SecretKey);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
-.AddJwtBearer(x =>
+.AddJwtBearer(options =>
 {
-    x.RequireHttpsMetadata = false;
-    x.SaveToken = true;
-    x.TokenValidationParameters = new TokenValidationParameters
+    options.SaveToken = false;
+    options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(key),
-        ValidateIssuer = false,
-        ValidateAudience = false
+        ValidateIssuer = true,
+        ValidIssuer = jwtSettings.Issuer,
+        ValidateAudience = true,
+        ValidAudience = jwtSettings.Audience,
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromMinutes(1)
     };
 });
 
@@ -125,7 +144,7 @@ app.MapPost("/api/auth/login", async (LoginModel login, AppDbContext db) =>
     var senhaValida = PasswordHasher.VerifyPassword(login.Password, usuario.PasswordHash);
     if (!senhaValida) return Results.Unauthorized();
 
-    var token = TokenService.GerarToken(usuario);
+    var token = TokenService.GerarToken(usuario, jwtSettings);
 
     return Results.Ok(new { Usuario = usuario.Username, NivelAcesso = usuario.Role, Token = token });
 });

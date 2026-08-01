@@ -6,25 +6,45 @@ using Wms.Domain.Models;
 
 namespace Wms.Application;
 
+public sealed record JwtSettings(
+    string SecretKey,
+    string Issuer,
+    string Audience,
+    int ExpirationHours);
+
 public static class TokenService
 {
-    // Chave secreta de teste para assinar digitalmente o token
-    public const string SecretKey = "ChaveSuperSecretaEProtegidaDaLogistica2026!";
-
-    public static string GerarToken(Usuario usuario)
+    public static string GerarToken(Usuario usuario, JwtSettings settings)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(settings.SecretKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(settings.Issuer);
+        ArgumentException.ThrowIfNullOrWhiteSpace(settings.Audience);
+
+        if (settings.ExpirationHours <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                "O tempo de expiração do token deve ser maior que zero.");
+        }
+
         var tokenHandler = new JwtSecurityTokenHandler();
-        var key = Encoding.ASCII.GetBytes(SecretKey);
+        var key = Encoding.UTF8.GetBytes(settings.SecretKey);
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity(new[]
-            {
+            Subject = new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
                 new Claim(ClaimTypes.Name, usuario.Username),
-                new Claim(ClaimTypes.Role, usuario.Role) // Define o nível de acesso (Gerente/Operador)
-            }),
-            Expires = DateTime.UtcNow.AddHours(4), // Token expira em 4 horas
-            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+                new Claim(ClaimTypes.Role, usuario.Role),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            ]),
+            Issuer = settings.Issuer,
+            Audience = settings.Audience,
+            Expires = DateTime.UtcNow.AddHours(settings.ExpirationHours),
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(key),
+                SecurityAlgorithms.HmacSha256Signature)
         };
 
         var token = tokenHandler.CreateToken(tokenDescriptor);
