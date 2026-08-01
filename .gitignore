@@ -9,3 +9,6 @@
 .vscode/
 .idea/
 *.user
+wms_clean.db
+wms_clean.db-shm
+wms_clean.db-wal
