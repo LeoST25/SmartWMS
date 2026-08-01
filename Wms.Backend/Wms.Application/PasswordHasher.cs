@@ -13,14 +13,14 @@ public static class PasswordHasher
         ArgumentException.ThrowIfNullOrWhiteSpace(password);
 
         var salt = RandomNumberGenerator.GetBytes(KeySize);
-        using var pbkdf2 = new Rfc2898DeriveBytes(
+        var hash = Rfc2898DeriveBytes.Pbkdf2(
             password,
             salt,
             Iterations,
-            HashAlgorithm);
-        var hash = pbkdf2.GetBytes(KeySize);
+            HashAlgorithm,
+            KeySize);
 
-        return $"{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
+        return $"${Convert.ToBase64String(salt)}.${Convert.ToBase64String(hash)}";
     }
 
     public static bool VerifyPassword(string? password, string? hashedPassword)
@@ -46,12 +46,12 @@ public static class PasswordHasher
                 return false;
             }
 
-            using var pbkdf2 = new Rfc2898DeriveBytes(
+            var actualHash = Rfc2898DeriveBytes.Pbkdf2(
                 password,
                 salt,
                 Iterations,
-                HashAlgorithm);
-            var actualHash = pbkdf2.GetBytes(KeySize);
+                HashAlgorithm,
+                KeySize);
 
             return CryptographicOperations.FixedTimeEquals(expectedHash, actualHash);
         }
