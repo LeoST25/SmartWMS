@@ -4,33 +4,68 @@ namespace Wms.Application;
 
 public static class PasswordHasher
 {
-    private const int KeySize = 32; // 256 bits
-    private const int Iterations = 100000;
+    private const int KeySize = 32;
+    private const int Iterations = 100_000;
     private static readonly HashAlgorithmName HashAlgorithm = HashAlgorithmName.SHA256;
 
     public static string HashPassword(string password)
     {
-        byte[] salt = RandomNumberGenerator.GetBytes(KeySize);
-        
-        // CORREÇÃO: Instanciação correta exigida pelo .NET
-        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, Iterations, HashAlgorithm);
-        byte[] hash = pbkdf2.GetBytes(KeySize);
+        ArgumentException.ThrowIfNullOrWhiteSpace(password);
+
+        var salt = RandomNumberGenerator.GetBytes(KeySize);
+        var hash = Rfc2898DeriveBytes.Pbkdf2(
+            password,
+            salt,
+            Iterations,
+            HashAlgorithm,
+            KeySize);
 
         return $"{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
     }
 
-    public static bool VerifyPassword(string password, string hashedPassword)
+    public static bool VerifyPassword(string? password, string? hashedPassword)
     {
-        var partes = hashedPassword.Split('.');
-        if (partes.Length != 2) return false;
+        if (string.IsNullOrEmpty(password) || string.IsNullOrWhiteSpace(hashedPassword))
+        {
+            return false;
+        }
 
-        byte[] salt = Convert.FromBase64String(partes[0]);
-        byte[] hashOriginal = Convert.FromBase64String(partes[1]);
+        try
+        {
+            var parts = hashedPassword.Split('.');
+            if (parts.Length != 2)
+            {
+                return false;
+            }
 
-        // CORREÇÃO: Instanciação correta usando o salt original recuperado
-        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, Iterations, HashAlgorithm);
-        byte[] hashNovo = pbkdf2.GetBytes(KeySize);
+            var salt = Convert.FromBase64String(parts[0]);
+            var expectedHash = Convert.FromBase64String(parts[1]);
 
-        return CryptographicOperations.FixedTimeEquals(hashOriginal, hashNovo);
+            if (salt.Length != KeySize || expectedHash.Length != KeySize)
+            {
+                return false;
+            }
+
+            var actualHash = Rfc2898DeriveBytes.Pbkdf2(
+                password,
+                salt,
+                Iterations,
+                HashAlgorithm,
+                KeySize);
+
+            return CryptographicOperations.FixedTimeEquals(expectedHash, actualHash);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
     }
 }

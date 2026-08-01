@@ -1,7 +1,9 @@
+using System.Data;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using Scalar.AspNetCore;
 using Wms.Application;
 using Wms.Infrastructure.Data;
@@ -18,21 +20,28 @@ builder.WebHost.ConfigureKestrel(options =>
     options.ListenAnyIP(int.Parse(portaRender));
 });
 
-// 1. Configuração Híbrida de Banco de Dados (SQLite Local / PostgreSQL na Nuvem)
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
-                       ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+// 1. Configuração híbrida de banco de dados (SQLite local / PostgreSQL na nuvem)
+var configuredConnectionString =
+    builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+
+var usePostgres = IsPostgresConnectionString(configuredConnectionString);
+var connectionString = usePostgres
+    ? NormalizePostgresConnectionString(configuredConnectionString!)
+    : configuredConnectionString
+      ?? $"Data Source={Path.Combine(Path.GetTempPath(), "wms_clean.db")}";
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("Host="))
+    if (usePostgres)
     {
-        options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Wms.API"));
+        options.UseNpgsql(
+            connectionString,
+            postgres => postgres.MigrationsAssembly("Wms.API"));
+        return;
     }
-    else
-    {
-        var bancoCaminho = Path.Combine(Path.GetTempPath(), "wms_clean.db");
-        options.UseSqlite($"Data Source={bancoCaminho}");
-    }
+
+    options.UseSqlite(connectionString);
 });
 
 // 2. CORREÇÃO CRÍTICA DO CORS: Mapeamento explícito das origens de desenvolvimento e produção corporativa
@@ -50,22 +59,59 @@ builder.Services.AddCors(options =>
 });
 
 // 3. CONFIGURAÇÃO DE SEGURANÇA: Autenticação & Autorização JWT
-var key = Encoding.ASCII.GetBytes(TokenService.SecretKey);
-builder.Services.AddAuthentication(x =>
+var jwtSecret = builder.Configuration["Jwt:SecretKey"]
+    ?? throw new InvalidOperationException(
+        "A configuração obrigatória 'Jwt:SecretKey' não foi definida. Use a variável de ambiente Jwt__SecretKey.");
+
+if (Encoding.UTF8.GetByteCount(jwtSecret) < 32)
 {
-    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    throw new InvalidOperationException("A chave JWT deve possuir pelo menos 32 bytes.");
+}
+
+var jwtSettings = new JwtSettings(
+    jwtSecret,
+    builder.Configuration["Jwt:Issuer"] ?? "SmartWMS.API",
+    builder.Configuration["Jwt:Audience"] ?? "SmartWMS.Frontend",
+    builder.Configuration.GetValue<int?>("Jwt:ExpirationHours") ?? 4);
+
+var key = Encoding.UTF8.GetBytes(jwtSettings.SecretKey);
+
+var bootstrapAdminUsername =
+    builder.Configuration["BootstrapAdmin:Username"]?.Trim();
+var bootstrapAdminPassword =
+    builder.Configuration["BootstrapAdmin:Password"];
+
+if (string.IsNullOrWhiteSpace(bootstrapAdminUsername)
+    != string.IsNullOrWhiteSpace(bootstrapAdminPassword))
+{
+    throw new InvalidOperationException(
+        "BootstrapAdmin__Username e BootstrapAdmin__Password devem ser configurados em conjunto.");
+}
+
+if (bootstrapAdminPassword is not null && bootstrapAdminPassword.Length < 12)
+{
+    throw new InvalidOperationException(
+        "BootstrapAdmin__Password deve possuir pelo menos 12 caracteres.");
+}
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
-.AddJwtBearer(x =>
+.AddJwtBearer(options =>
 {
-    x.RequireHttpsMetadata = false;
-    x.SaveToken = true;
-    x.TokenValidationParameters = new TokenValidationParameters
+    options.SaveToken = false;
+    options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(key),
-        ValidateIssuer = false,
-        ValidateAudience = false
+        ValidateIssuer = true,
+        ValidIssuer = jwtSettings.Issuer,
+        ValidateAudience = true,
+        ValidAudience = jwtSettings.Audience,
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromMinutes(1)
     };
 });
 
@@ -75,19 +121,51 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// ⚡ Inicialização e Resiliência de Infraestrutura
+// Inicialização determinística da infraestrutura
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    
-    if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+
+    if (usePostgres)
     {
         db.Database.Migrate();
     }
     else
     {
-        try { db.Database.Migrate(); }
-        catch (Exception) { db.Database.EnsureCreated(); }
+        db.Database.EnsureCreated();
+    }
+
+    if (!string.IsNullOrWhiteSpace(bootstrapAdminUsername)
+        && !string.IsNullOrWhiteSpace(bootstrapAdminPassword))
+    {
+        var usernameNormalizado = bootstrapAdminUsername.ToUpper();
+        var admin = db.Usuarios.FirstOrDefault(
+            u => u.Username.ToUpper() == usernameNormalizado);
+
+        if (admin is null)
+        {
+            db.Usuarios.Add(new Usuario
+            {
+                Username = bootstrapAdminUsername,
+                PasswordHash = PasswordHasher.HashPassword(bootstrapAdminPassword),
+                Role = "Gerente"
+            });
+            db.SaveChanges();
+        }
+        else if (!string.Equals(
+                     admin.Role,
+                     "Gerente",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "O usuário configurado no bootstrap já existe sem o perfil Gerente.");
+        }
+    }
+
+    if (!db.Usuarios.Any(u => u.Role == "Gerente"))
+    {
+        app.Logger.LogWarning(
+            "Nenhum gerente foi encontrado. Configure BootstrapAdmin__Username e BootstrapAdmin__Password.");
     }
 }
 
@@ -104,28 +182,62 @@ app.MapScalarApiReference(options => { options.WithTitle("Smart WMS - Clean & Se
 // ROTAS DE AUTENTICAÇÃO (PÚBLICAS)
 // ========================================================
 
-app.MapPost("/api/auth/registrar", async (Usuario novoUsuario, AppDbContext db) =>
+app.MapPost("/api/auth/registrar", async (RegisterModel registro, AppDbContext db) =>
 {
-    var usuarioExiste = await db.Usuarios.AnyAsync(u => u.Username == novoUsuario.Username);
-    if (usuarioExiste) return Results.BadRequest("Este nome de usuário já está em uso.");
+    var username = registro.Username.Trim();
 
-    novoUsuario.PasswordHash = PasswordHasher.HashPassword(novoUsuario.PasswordHash);
+    if (username.Length is < 3 or > 50)
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["username"] = ["O nome de usuário deve possuir entre 3 e 50 caracteres."]
+        });
+    }
+
+    if (registro.Password.Length is < 8 or > 128)
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["password"] = ["A senha deve possuir entre 8 e 128 caracteres."]
+        });
+    }
+
+    var usernameNormalizado = username.ToUpper();
+    var usuarioExiste = await db.Usuarios
+        .AnyAsync(u => u.Username.ToUpper() == usernameNormalizado);
+
+    if (usuarioExiste)
+    {
+        return Results.Conflict("Este nome de usuário já está em uso.");
+    }
+
+    var novoUsuario = new Usuario
+    {
+        Username = username,
+        PasswordHash = PasswordHasher.HashPassword(registro.Password),
+        Role = "Operador"
+    };
 
     db.Usuarios.Add(novoUsuario);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/auth/usuario/{novoUsuario.Id}", new { novoUsuario.Username, novoUsuario.Role });
+    return Results.Created(
+        $"/api/auth/usuario/{novoUsuario.Id}",
+        new { novoUsuario.Username, novoUsuario.Role });
 });
 
 app.MapPost("/api/auth/login", async (LoginModel login, AppDbContext db) =>
 {
-    var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Username == login.Username);
+    var usernameNormalizado = login.Username.Trim().ToUpper();
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Username.ToUpper() == usernameNormalizado);
+
     if (usuario == null) return Results.Unauthorized();
 
     var senhaValida = PasswordHasher.VerifyPassword(login.Password, usuario.PasswordHash);
     if (!senhaValida) return Results.Unauthorized();
 
-    var token = TokenService.GerarToken(usuario);
+    var token = TokenService.GerarToken(usuario, jwtSettings);
 
     return Results.Ok(new { Usuario = usuario.Username, NivelAcesso = usuario.Role, Token = token });
 });
@@ -146,39 +258,169 @@ app.MapGet("/api/logistica/auditoria", async (AppDbContext db) =>
     await db.HistoricosMovimentacao.Where(h => !h.Arquivado).OrderByDescending(h => h.DataHora).ToListAsync())
     .RequireAuthorization();
 
-app.MapPost("/api/posicoes", async (PosicaoArmazem novaPosicao, AppDbContext db) =>
+app.MapPost("/api/posicoes", async (CreatePositionModel request, AppDbContext db) =>
 {
+    var corredor = request.Corredor.Trim().ToUpperInvariant();
+    var errors = new Dictionary<string, string[]>();
+
+    if (corredor.Length is < 1 or > 2)
+    {
+        errors["corredor"] = ["O corredor deve possuir entre 1 e 2 caracteres."];
+    }
+
+    if (request.Prateleira <= 0)
+    {
+        errors["prateleira"] = ["A prateleira deve ser maior que zero."];
+    }
+
+    if (request.Nivel <= 0)
+    {
+        errors["nivel"] = ["O nível deve ser maior que zero."];
+    }
+
+    if (errors.Count > 0)
+    {
+        return Results.ValidationProblem(errors);
+    }
+
+    var posicaoExiste = await db.PosicoesArmazem.AnyAsync(p =>
+        p.Corredor.ToUpper() == corredor
+        && p.Prateleira == request.Prateleira
+        && p.Nivel == request.Nivel);
+
+    if (posicaoExiste)
+    {
+        return Results.Conflict("Esta posição física já está cadastrada.");
+    }
+
+    var novaPosicao = new PosicaoArmazem
+    {
+        Corredor = corredor,
+        Prateleira = request.Prateleira,
+        Nivel = request.Nivel,
+        Ocupada = false
+    };
+
     db.PosicoesArmazem.Add(novaPosicao);
-    await db.SaveChangesAsync();
+
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+        return Results.Conflict("Esta posição física já está cadastrada.");
+    }
+
     return Results.Created($"/api/posicoes/{novaPosicao.Id}", novaPosicao);
 }).RequireAuthorization(p => p.RequireRole("Gerente"));
 
-app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpContext http) =>
+app.MapPost("/api/produtos", async (CreateProductModel request, AppDbContext db, HttpContext http) =>
 {
-    var posicaoLivre = await db.PosicoesArmazem.FirstOrDefaultAsync(p => !p.Ocupada);
-    if (posicaoLivre == null) return Results.BadRequest("Não há vagas livres no galpão público!");
+    var nome = request.Nome.Trim();
+    var sku = request.Sku.Trim().ToUpperInvariant();
+    var errors = new Dictionary<string, string[]>();
 
-    var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
-
-    posicaoLivre.Ocupada = true;
-    novoProduto.PosicaoArmazemId = posicaoLivre.Id;
-    novoProduto.Posicao = null;
-
-    db.Produtos.Add(novoProduto);
-
-    var auditoria = new HistoricoMovimentacao
+    if (nome.Length is < 2 or > 200)
     {
-        Sku = novoProduto.Sku,
-        ProdutoNome = novoProduto.Nome,
-        TipoMovimentacao = "ENTRADA",
-        Quantidade = novoProduto.Quantidade,
-        EnderecoGalpao = $"{posicaoLivre.Corredor}-{posicaoLivre.Prateleira}-{posicaoLivre.Nivel}",
-        UsuarioResponsavel = usuarioAtual
-    };
-    db.HistoricosMovimentacao.Add(auditoria);
+        errors["nome"] = ["O nome deve possuir entre 2 e 200 caracteres."];
+    }
 
-    await db.SaveChangesAsync();
-    return Results.Created($"/api/produtos/{novoProduto.Id}", novoProduto);
+    if (sku.Length is < 1 or > 64)
+    {
+        errors["sku"] = ["O SKU deve possuir entre 1 e 64 caracteres."];
+    }
+
+    if (request.Quantidade <= 0)
+    {
+        errors["quantidade"] = ["A quantidade deve ser maior que zero."];
+    }
+
+    if (!double.IsFinite(request.Peso) || request.Peso <= 0)
+    {
+        errors["peso"] = ["O peso deve ser um número maior que zero."];
+    }
+
+    if (request.EstoqueMinimo < 0)
+    {
+        errors["estoqueMinimo"] = ["O estoque mínimo não pode ser negativo."];
+    }
+
+    if (errors.Count > 0)
+    {
+        return Results.ValidationProblem(errors);
+    }
+
+    await using var transaction = await db.Database.BeginTransactionAsync(
+        IsolationLevel.Serializable);
+
+    try
+    {
+        var skuExiste = await db.Produtos.AnyAsync(p => p.Sku.ToUpper() == sku);
+        if (skuExiste)
+        {
+            return Results.Conflict($"O SKU '{sku}' já está cadastrado.");
+        }
+
+        var posicaoLivre = await db.PosicoesArmazem
+            .OrderBy(p => p.Corredor)
+            .ThenBy(p => p.Prateleira)
+            .ThenBy(p => p.Nivel)
+            .FirstOrDefaultAsync(p => !p.Ocupada);
+
+        if (posicaoLivre == null)
+        {
+            return Results.Conflict("Não há vagas livres no armazém.");
+        }
+
+        var novoProduto = new Produto
+        {
+            Nome = nome,
+            Sku = sku,
+            Quantidade = request.Quantidade,
+            Peso = request.Peso,
+            EstoqueMinimo = request.EstoqueMinimo,
+            PosicaoArmazemId = posicaoLivre.Id
+        };
+
+        posicaoLivre.Ocupada = true;
+        db.Produtos.Add(novoProduto);
+
+        db.HistoricosMovimentacao.Add(new HistoricoMovimentacao
+        {
+            Sku = novoProduto.Sku,
+            ProdutoNome = novoProduto.Nome,
+            TipoMovimentacao = "ENTRADA",
+            Quantidade = novoProduto.Quantidade,
+            EnderecoGalpao = posicaoLivre.CodigoEndereco,
+            UsuarioResponsavel = http.User.Identity?.Name ?? "Sistema"
+        });
+
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        return Results.Created($"/api/produtos/{novoProduto.Id}", novoProduto);
+    }
+    catch (DbUpdateException exception)
+        when (exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.SerializationFailure
+        })
+    {
+        return Results.Conflict(
+            "O estoque foi atualizado simultaneamente. Sincronize e tente novamente.");
+    }
+    catch (PostgresException exception)
+        when (exception.SqlState == PostgresErrorCodes.SerializationFailure)
+    {
+        return Results.Conflict(
+            "O estoque foi atualizado simultaneamente. Sincronize e tente novamente.");
+    }
+    catch (DbUpdateException)
+    {
+        return Results.Conflict(
+            "A operação conflitou com outra atualização de estoque. Sincronize e tente novamente.");
+    }
 }).RequireAuthorization(p => p.RequireRole("Gerente"));
 
 app.MapPost("/api/logistica/auditoria/limpar", async (AppDbContext db) =>
@@ -195,9 +437,10 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
 {
     var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
 
+    var skuNormalizado = sku.Trim().ToUpper();
     var produto = await db.Produtos
         .Include(p => p.Posicao)
-        .FirstOrDefaultAsync(p => p.Sku.ToLower() == sku.ToLower());
+        .FirstOrDefaultAsync(p => p.Sku.ToUpper() == skuNormalizado);
 
     if (produto == null) return Results.NotFound($"Produto com SKU '{sku}' não localizado.");
 
@@ -226,4 +469,59 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
 
 app.Run();
 
-public record LoginModel(string Username, string Password);
+static bool IsPostgresConnectionString(string? value)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return false;
+    }
+
+    if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+    {
+        return uri.Scheme is "postgres" or "postgresql";
+    }
+
+    return value.Contains("Host=", StringComparison.OrdinalIgnoreCase)
+        || value.Contains("Server=", StringComparison.OrdinalIgnoreCase);
+}
+
+static string NormalizePostgresConnectionString(string value)
+{
+    if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        || uri.Scheme is not ("postgres" or "postgresql"))
+    {
+        return value;
+    }
+
+    var credentials = uri.UserInfo.Split(':', 2);
+    if (credentials.Length != 2)
+    {
+        throw new InvalidOperationException(
+            "DATABASE_URL deve conter usuário e senha para o PostgreSQL.");
+    }
+
+    var connection = new NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.IsDefaultPort ? 5432 : uri.Port,
+        Database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')),
+        Username = Uri.UnescapeDataString(credentials[0]),
+        Password = Uri.UnescapeDataString(credentials[1]),
+        SslMode = SslMode.Require
+    };
+
+    return connection.ConnectionString;
+}
+
+public sealed record RegisterModel(string Username, string Password);
+public sealed record LoginModel(string Username, string Password);
+public sealed record CreatePositionModel(
+    string Corredor,
+    int Prateleira,
+    int Nivel);
+public sealed record CreateProductModel(
+    string Nome,
+    string Sku,
+    int Quantidade,
+    double Peso,
+    int EstoqueMinimo);

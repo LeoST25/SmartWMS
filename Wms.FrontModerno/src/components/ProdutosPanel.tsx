@@ -10,10 +10,12 @@ import {
 import { toast } from "sonner";
 
 interface ProdutosPanelProps {
+  canManage: boolean;
   onMovimentacaoSucesso: () => void;
 }
 
 export default function ProdutosPanel({
+  canManage,
   onMovimentacaoSucesso,
 }: ProdutosPanelProps) {
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -133,6 +135,7 @@ export default function ProdutosPanel({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start animate-fade-in">
       {/* Formulário de Entrada (Putaway) */}
+      {canManage && (
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex items-center gap-2 mb-6">
           <PackagePlus className="text-blue-500" size={22} />
@@ -222,9 +225,12 @@ export default function ProdutosPanel({
           </button>
         </form>
       </div>
+      )}
 
       {/* Tabela de Inventário */}
-      <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+      <div
+        className={`${canManage ? "lg:col-span-2" : "lg:col-span-3"} bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl`}
+      >
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold text-white">
             Inventário em Tempo Real
@@ -296,7 +302,7 @@ export default function ProdutosPanel({
 
                       {/* Controle visual por nível de cargo */}
                       <td className="py-4 text-right">
-                        {localStorage.getItem("wms_role") === "Gerente" ? (
+                        {canManage ? (
                           <button
                             onClick={() => handleDespachar(p.sku)}
                             className="inline-flex items-center gap-1.5 bg-slate-950 hover:bg-rose-950/30 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-900 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer"
