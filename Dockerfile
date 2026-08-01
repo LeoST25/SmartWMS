@@ -1,4 +1,3 @@
-# 1. Fase de Compilação (Build) utilizando o SDK do .NET 10
 FROM ://microsoft.com AS build-env
 WORKDIR /src
 
