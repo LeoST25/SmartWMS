@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 import ProdutosPanel from "./components/ProdutosPanel";
 import VagasPanel from "./components/VagasPanel";
 import AuditoriaPanel from "./components/AuditoriaPanel";
+import DashboardPanel from "./components/DashboardPanel";
 
 export default function App() {
   const [logado, setLogado] = useState(false);
@@ -74,11 +75,7 @@ export default function App() {
 
               {abaAtiva === "auditoria" && <AuditoriaPanel />}
 
-              {abaAtiva === "dashboard" && (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-500">
-                  Os Gráficos de KPIs de Ocupação serão renderizados aqui...
-                </div>
-              )}
+              {abaAtiva === "dashboard" && <DashboardPanel />}
             </div>
           </main>
         </>
