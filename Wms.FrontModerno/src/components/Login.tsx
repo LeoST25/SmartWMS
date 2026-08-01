@@ -32,7 +32,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         toast.success(`Acesso autorizado! Bem-vindo, ${dados.usuario}.`);
         onLoginSuccess();
       }
-    } catch (error) {
+    } catch {
       toast.error(
         "Falha na autenticação: Credenciais incorretas ou inválidas.",
       );
@@ -65,9 +65,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         toast.success("Operador logístico registrado com sucesso na base!");
         setIsLogin(true);
       }
-    } catch (error: any) {
-      const msg =
-        error.response?.data || "Erro de barramento ao registrar operador.";
+    } catch (error: unknown) {
+      let msg: string;
+      if (typeof error === 'object' && error !== null && 'response' in error) {
+        const err = error as { response?: { data?: string } };
+        msg = err.response?.data || "Erro de barramento ao registrar operador.";
+      } else {
+        msg = "Erro de barramento ao registrar operador.";
+      }
       toast.error(msg);
     } finally {
       setCarregando(false);
@@ -75,7 +80,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   };
 
   return (
-    /* CORREÇÃO: Força o contêiner a ocupar a tela inteira em modo absoluto e centralizar tudo no meio */
     <div className="absolute inset-0 w-screen h-screen flex items-center justify-center bg-slate-950 p-4">
       <div className="w-full max-w-md rounded-2xl bg-slate-900 p-8 shadow-2xl border border-slate-800 transition-all duration-300">
         <div className="text-center mb-8">
@@ -136,7 +140,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   Operador Logístico (Leitura de Inventário)
                 </option>
                 <option value="Gerente">
-                  Gerente de Inventário (Acesso Administrative Total)
+                  Gerente de Inventário (Acesso Administrativo Total)
                 </option>
               </select>
             </div>
