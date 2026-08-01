@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Toaster } from "sonner"; // <-- IMPORTAÇÃO DO PROVEDOR GLOBAL DE TOASTS
+import { useState, useCallback } from "react";
+import { Toaster } from "sonner";
 import Login from "./components/Login";
 import Sidebar from "./components/Sidebar";
 import ProdutosPanel from "./components/ProdutosPanel";
@@ -13,16 +13,21 @@ export default function App() {
   const [role, setRole] = useState("");
   const [abaAtiva, setAbaAtiva] = useState("produtos");
 
-  useEffect(() => {
+  // MEMOIZAÇÃO: Sincronização segura das credenciais locais
+  const verificarSessaoAtiva = useCallback(() => {
     const token = localStorage.getItem("wms_token");
     const user = localStorage.getItem("wms_user");
     const userRole = localStorage.getItem("wms_role");
+
     if (token && user && userRole) {
       setLogado(true);
       setUsuario(user);
       setRole(userRole);
     }
   }, []);
+
+  // Inicialização direta e livre de renders em cascata
+  verificarSessaoAtiva();
 
   const handleLogout = () => {
     localStorage.clear();
@@ -33,7 +38,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex">
-      {/* INJEÇÃO DO COMPONENTE DE RENDERIZAÇÃO DE TOASTS ANIMADOS */}
       <Toaster position="top-right" theme="dark" richColors closeButton />
 
       {!logado ? (
