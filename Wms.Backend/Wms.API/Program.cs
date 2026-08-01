@@ -8,17 +8,22 @@ using Wms.Infrastructure.Data;
 using Wms.Domain.Models;
 using WmsLogistica.Models;
 
-Environment.SetEnvironmentVariable("ASPNETCORE_URLS", "http://localhost:5000");
-
 var builder = WebApplication.CreateBuilder(args);
+
+var portaRender = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(int.Parse(portaRender));
+});
 
 // 1. Configuração do Banco de Dados (SQLite)
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite("Data Source=wms_clean.db"));
 
 // 2. Configuração do CORS (Liberação para o Front-end)
-builder.Services.AddCors(options => 
-    options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+var bancoCaminho = Path.Combine(Path.GetTempPath(), "wms_clean.db");
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite($"Data Source={bancoCaminho}"));
 
 // 3. CONFIGURAÇÃO DE SEGURANÇA: Autenticação JWT
 var key = Encoding.ASCII.GetBytes(TokenService.SecretKey);
