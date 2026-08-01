@@ -7,6 +7,8 @@ import {
   User,
 } from "lucide-react";
 
+type Aba = "produtos" | "vagas" | "auditoria" | "dashboard";
+
 interface SidebarProps {
   usuario: string;
   role: string;
@@ -23,12 +25,16 @@ export default function Sidebar({
   setAbaAtiva,
 }: SidebarProps) {
   // Itens do menu com seus respectivos ícones do Lucide
-  const menuItens = [
-    { id: "produtos", nome: "Produtos / Inventário", icone: Package },
-    { id: "vagas", nome: "Mapa de Vagas", icone: MapPin },
-    { id: "auditoria", nome: "Histórico / Auditoria", icone: History },
-    { id: "dashboard", nome: "Indicadores / KPIs", icone: BarChart3 },
-  ];
+const menuItens: {
+  id: Aba;
+  nome: string;
+  icone: typeof Package;
+}[] = [
+  { id: "produtos", nome: "Produtos / Inventário", icone: Package },
+  { id: "vagas", nome: "Mapa de Vagas", icone: MapPin },
+  { id: "auditoria", nome: "Histórico / Auditoria", icone: History },
+  { id: "dashboard", nome: "Indicadores / KPIs", icone: BarChart3 },
+];
 
   return (
     <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between h-screen sticky top-0">
