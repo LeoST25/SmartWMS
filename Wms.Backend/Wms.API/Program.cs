@@ -76,6 +76,24 @@ var jwtSettings = new JwtSettings(
 
 var key = Encoding.UTF8.GetBytes(jwtSettings.SecretKey);
 
+var bootstrapAdminUsername =
+    builder.Configuration["BootstrapAdmin:Username"]?.Trim();
+var bootstrapAdminPassword =
+    builder.Configuration["BootstrapAdmin:Password"];
+
+if (string.IsNullOrWhiteSpace(bootstrapAdminUsername)
+    != string.IsNullOrWhiteSpace(bootstrapAdminPassword))
+{
+    throw new InvalidOperationException(
+        "BootstrapAdmin__Username e BootstrapAdmin__Password devem ser configurados em conjunto.");
+}
+
+if (bootstrapAdminPassword is not null && bootstrapAdminPassword.Length < 12)
+{
+    throw new InvalidOperationException(
+        "BootstrapAdmin__Password deve possuir pelo menos 12 caracteres.");
+}
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -115,6 +133,39 @@ using (var scope = app.Services.CreateScope())
     else
     {
         db.Database.EnsureCreated();
+    }
+
+    if (!string.IsNullOrWhiteSpace(bootstrapAdminUsername)
+        && !string.IsNullOrWhiteSpace(bootstrapAdminPassword))
+    {
+        var usernameNormalizado = bootstrapAdminUsername.ToUpper();
+        var admin = db.Usuarios.FirstOrDefault(
+            u => u.Username.ToUpper() == usernameNormalizado);
+
+        if (admin is null)
+        {
+            db.Usuarios.Add(new Usuario
+            {
+                Username = bootstrapAdminUsername,
+                PasswordHash = PasswordHasher.HashPassword(bootstrapAdminPassword),
+                Role = "Gerente"
+            });
+            db.SaveChanges();
+        }
+        else if (!string.Equals(
+                     admin.Role,
+                     "Gerente",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "O usuário configurado no bootstrap já existe sem o perfil Gerente.");
+        }
+    }
+
+    if (!db.Usuarios.Any(u => u.Role == "Gerente"))
+    {
+        app.Logger.LogWarning(
+            "Nenhum gerente foi encontrado. Configure BootstrapAdmin__Username e BootstrapAdmin__Password.");
     }
 }
 
