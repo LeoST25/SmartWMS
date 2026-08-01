@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState, useCallback, useEffect, useRef } from "react"; // Adicionado useCallback
 import { api } from "../services/api";
 import type { HistoricoMovimentacao } from "../types/wms";
 import {
@@ -15,8 +15,8 @@ export default function AuditoriaPanel() {
   const [historico, setHistorico] = useState<HistoricoMovimentacao[]>([]);
   const [carregando, setCarregando] = useState(false);
 
-  // Busca os dados da rota de auditoria do C# com o token JWT automático
-  const carregarAuditoria = async () => {
+  // MEMOIZAÇÃO DA ROTINA DE COMPILAÇÃO DE LOGS
+  const carregarAuditoria = useCallback(async () => {
     setCarregando(true);
     try {
       const resposta = await api.get<HistoricoMovimentacao[]>(
@@ -26,15 +26,20 @@ export default function AuditoriaPanel() {
         setHistorico(resposta.data);
       }
     } catch (error) {
-      console.error("Erro ao buscar logs de auditoria:", error);
+      console.error(error);
     } finally {
       setCarregando(false);
     }
-  };
+  }, []);
+
+  const isMounted = useRef(false);
 
   useEffect(() => {
-    carregarAuditoria();
-  }, []);
+    if (!isMounted.current) {
+      isMounted.current = true;
+      carregarAuditoria();
+    }
+  }, [carregarAuditoria]);
 
   // Formata a data ISO vinda do banco SQLite para o padrão brasileiro
   const formatarData = (dataString: string) => {
@@ -46,15 +51,16 @@ export default function AuditoriaPanel() {
     if (!confirm("Deseja realmente arquivar o histórico de auditoria?")) return;
 
     try {
-      await api.post('/logistica/auditoria/limpar');
+      await api.post("/logistica/auditoria/limpar");
 
       await carregarAuditoria(); // Recarrega os logs após arquivar
 
       alert("Histórico de auditoria arquivado com sucesso!");
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-      alert('Erro ao arquivar dados');
+      alert("Erro ao arquivar dados");
     }
-  }
+  };
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
@@ -78,16 +84,6 @@ export default function AuditoriaPanel() {
             <RefreshCw size={12} className={carregando ? "animate-spin" : ""} />
             Sincronizar
           </button>
-        </div>
-
-        <div className="flex gap-2 w-full sm:w-auto">
-          <button
-            onClick={carregarAuditoria}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white bg-slate-950 border border-slate-800 hover:border-slate-700 px-3 py-1.5 rounded-xl transition cursor-pointer"
-          >
-            <RefreshCw size={12} className={carregando ? "animate-spin" : ""} />
-            Sincronizar
-          </button>
 
           <button
             onClick={handleLimparHistorico}
@@ -100,7 +96,7 @@ export default function AuditoriaPanel() {
       </div>
 
       {/* Lista da Trilha de Auditoria */}
-      <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+      <div className="space-y-4 max-h-150 overflow-y-auto pr-2">
         {historico.length === 0 ? (
           <p className="text-center text-slate-500 py-12 text-sm">
             Nenhuma movimentação de carga registrada na auditoria até o momento.

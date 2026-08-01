@@ -26,22 +26,32 @@ export default function DashboardPanel() {
   const [vagas, setVagas] = useState<PosicaoArmazem[]>([]);
   const [carregando, setCarregando] = useState(true);
 
-  const buscarDadosDashboard = async () => {
-    try {
-      const resposta = await api.get<PosicaoArmazem[]>("/posicoes");
-      if (Array.isArray(resposta.data)) {
-        setVagas(resposta.data);
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error("Erro de barramento ao sincronizar indicadores logísticos.");
-    } finally {
-      setCarregando(false);
-    }
-  };
-
   useEffect(() => {
+    let isMounted = true;
+
+    const buscarDadosDashboard = async () => {
+      try {
+        const resposta = await api.get<PosicaoArmazem[]>("/posicoes");
+        if (isMounted && Array.isArray(resposta.data)) {
+          setVagas(resposta.data);
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.error(error);
+          toast.error("Erro de barramento ao sincronizar indicadores logísticos.");
+        }
+      } finally {
+        if (isMounted) {
+          setCarregando(false);
+        }
+      }
+    };
+
     buscarDadosDashboard();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   if (carregando) {
@@ -55,7 +65,7 @@ export default function DashboardPanel() {
   // 🧠 Algoritmos de processamento de dados para os gráficos
   const totalVagas = vagas.length;
   const vagasOcupadas = vagas.filter(
-    (v) => v.ocupada || (v as any).Ocupada,
+    (v) => v.ocupada || (v as PosicaoArmazem & { Ocupada?: boolean }).Ocupada,
   ).length;
   const vagasLivres = totalVagas - vagasOcupadas;
   const taxaOcupacao =
@@ -73,8 +83,8 @@ export default function DashboardPanel() {
     [key: string]: { livres: number; ocupadas: number };
   } = {};
   vagas.forEach((v) => {
-    const corr = v.corredor || (v as any).Corredor || "Desconhecido";
-    const ocup = v.ocupada !== undefined ? v.ocupada : (v as any).Ocupada;
+    const corr = v.corredor || (v as PosicaoArmazem & { Corredor?: string }).Corredor || "Desconhecido";
+    const ocup = v.ocupada !== undefined ? v.ocupada : (v as PosicaoArmazem & { Ocupada?: boolean }).Ocupada;
 
     if (!contagemCorredores[corr]) {
       contagemCorredores[corr] = { livres: 0, ocupadas: 0 };

@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react"; // Adicionado useCallback e useRef
 import { api } from "../services/api";
 import type { Produto } from "../types/wms";
 import {
   PackagePlus,
   RefreshCw,
-  Trash2,
   ShieldAlert,
   ArrowUpRight,
 } from "lucide-react";
-import { toast } from "sonner"; // <-- IMPORTAÇÃO DO EMISSOR DE NOTIFICAÇÕES ANIMADAS
+import { toast } from "sonner";
 
 interface ProdutosPanelProps {
   onMovimentacaoSucesso: () => void;
@@ -24,8 +23,10 @@ export default function ProdutosPanel({
   const [peso, setPeso] = useState<number>(0);
   const [estoqueMinimo, setEstoqueMinimo] = useState<number>(5);
   const [carregando, setCarregando] = useState(false);
+  const isFirstRender = useRef(true);
 
-  const carregarProdutos = async () => {
+  // MEMOIZAÇÃO: A função é travada na memória e só se reconstrói se houver alteração externa
+  const carregarProdutos = useCallback(async () => {
     try {
       const resposta = await api.get<Produto[]>("/produtos");
       setProdutos(resposta.data);
@@ -33,11 +34,27 @@ export default function ProdutosPanel({
       console.error("Erro ao buscar produtos:", error);
       toast.error("Erro de conexão ao sincronizar o estoque ativo.");
     }
-  };
-
-  useEffect(() => {
-    carregarProdutos();
   }, []);
+
+  // Carrega produtos apenas na montagem inicial do componente
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      carregarProdutos();
+    }
+  }, [carregarProdutos]);
+
+  // Type guard para verificar se o erro é do Axios
+  const isAxiosError = (
+    erro: unknown,
+  ): erro is { response?: { data?: unknown } } => {
+    return (
+      typeof erro === "object" &&
+      erro !== null &&
+      "response" in erro &&
+      typeof (erro as Record<string, unknown>).response === "object"
+    );
+  };
 
   const handlePutaway = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,9 +90,16 @@ export default function ProdutosPanel({
         carregarProdutos();
         onMovimentacaoSucesso();
       }
-    } catch (error: any) {
-      const msgErro =
-        error.response?.data || "Erro de barramento ao alocar produto.";
+    } catch (erro: unknown) {
+      let msgErro: string;
+      if (isAxiosError(erro)) {
+        msgErro =
+          (erro.response?.data as string) || "Erro de barramento ao alocar produto.";
+      } else if (erro instanceof Error) {
+        msgErro = erro.message || "Erro de barramento ao alocar produto.";
+      } else {
+        msgErro = "Erro de barramento ao alocar produto.";
+      }
       // TOAST 2: Captura os erros de SKU duplicado ou armazém cheio vindos do C#
       toast.error(msgErro);
     } finally {
@@ -101,7 +125,7 @@ export default function ProdutosPanel({
         carregarProdutos();
         onMovimentacaoSucesso();
       }
-    } catch (error) {
+    } catch {
       toast.error("Controle de Acesso: Falha ao executar despacho da carga.");
     }
   };

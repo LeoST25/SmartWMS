@@ -37,6 +37,7 @@ export default function VagasPanel() {
   useEffect(() => {
     let ativo = true;
     if (ativo) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       carregarVagas();
     }
     return () => {
