@@ -8,6 +8,7 @@ using Wms.Infrastructure.Data;
 using Wms.Domain.Models;
 using WmsLogistica.Models;
 
+// Inicialização obrigatória do Builder do WebApplication
 var builder = WebApplication.CreateBuilder(args);
 
 // Configuração de portas dinâmicas para a nuvem do Render
@@ -25,24 +26,27 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 {
     if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("Host="))
     {
-        // Configuração corporativa estável para o PostgreSQL
         options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Wms.API"));
     }
     else
     {
-        // Fallback local estável offline
         var bancoCaminho = Path.Combine(Path.GetTempPath(), "wms_clean.db");
         options.UseSqlite($"Data Source={bancoCaminho}");
     }
 });
 
-// 2. Configuração do CORS
+// 2. CORREÇÃO CRÍTICA DO CORS: Mapeamento explícito das origens de desenvolvimento e produção corporativa
 builder.Services.AddCors(options => 
 {
     options.AddPolicy("WmsCorsPolicy", p => p
-        .AllowAnyOrigin()
+        .WithOrigins(
+            "https://smart-wms-frontend.onrender.com", // Seu domínio oficial do Front-end na nuvem
+            "http://localhost:5173",                   // Seu ambiente de testes local do Vite
+            "http://localhost:3000"
+        )
         .AllowAnyHeader()
-        .AllowAnyMethod());
+        .AllowAnyMethod()
+        .AllowCredentials()); // Permite tráfego seguro de tokens e cookies autenticados
 });
 
 // 3. CONFIGURAÇÃO DE SEGURANÇA: Autenticação & Autorização JWT
@@ -71,30 +75,23 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+// ⚡ Inicialização e Resiliência de Infraestrutura
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     
-    // Se estiver conectado ao PostgreSQL (Nuvem), aplica via Migrations estritas
     if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
     {
         db.Database.Migrate();
     }
     else
     {
-        // Se estiver local no SQLite, tenta aplicar via migração ou cria via Fallback de segurança se as tabelas sumirem
-        try
-        {
-            db.Database.Migrate();
-        }
-        catch (Exception)
-        {
-            // Fallback de infraestrutura: Garante a criação física offline imediata se a migration falhar no SQLite local
-            db.Database.EnsureCreated();
-        }
+        try { db.Database.Migrate(); }
+        catch (Exception) { db.Database.EnsureCreated(); }
     }
 }
 
+// Aplicação obrigatória da política antes dos middlewares de segurança de rotas
 app.UseCors("WmsCorsPolicy");
 
 app.UseAuthentication(); 
