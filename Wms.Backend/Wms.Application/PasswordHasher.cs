@@ -20,7 +20,7 @@ public static class PasswordHasher
             HashAlgorithm,
             KeySize);
 
-        return $"${Convert.ToBase64String(salt)}.${Convert.ToBase64String(hash)}";
+        return $"{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
     }
 
     public static bool VerifyPassword(string? password, string? hashedPassword)
