@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Toaster } from "sonner"; // <-- IMPORTAÇÃO DO PROVEDOR GLOBAL DE TOASTS
 import Login from "./components/Login";
 import Sidebar from "./components/Sidebar";
 import ProdutosPanel from "./components/ProdutosPanel";
@@ -29,59 +30,59 @@ export default function App() {
     setRole("");
   };
 
-  if (!logado) {
-    return (
-      <Login
-        onLoginSuccess={() => {
-          setLogado(true);
-          setUsuario(localStorage.getItem("wms_user") || "");
-          setRole(localStorage.getItem("wms_role") || "");
-        }}
-      />
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-950 text-white flex">
-      <Sidebar
-        usuario={usuario}
-        role={role}
-        onLogout={handleLogout}
-        abaAtiva={abaAtiva}
-        setAbaAtiva={setAbaAtiva}
-      />
+      {/* INJEÇÃO DO COMPONENTE DE RENDERIZAÇÃO DE TOASTS ANIMADOS */}
+      <Toaster position="top-right" theme="dark" richColors closeButton />
 
-      <main className="flex-1 p-8 overflow-y-auto">
-        <header className="mb-8">
-          <h2 className="text-2xl font-black text-white capitalize tracking-tight">
-            {abaAtiva}
-          </h2>
-          <p className="text-slate-400 text-sm">
-            Gerenciamento operacional e controle de mapeamento físico.
-          </p>
-        </header>
+      {!logado ? (
+        <Login
+          onLoginSuccess={() => {
+            setLogado(true);
+            setUsuario(localStorage.getItem("wms_user") || "");
+            setRole(localStorage.getItem("wms_role") || "");
+          }}
+        />
+      ) : (
+        <>
+          <Sidebar
+            usuario={usuario}
+            role={role}
+            onLogout={handleLogout}
+            abaAtiva={abaAtiva}
+            setAbaAtiva={setAbaAtiva}
+          />
 
-        <div>
-          {abaAtiva === "produtos" && (
-            <ProdutosPanel
-              onMovimentacaoSucesso={() => console.log("Estoque alterado!")}
-            />
-          )}
+          <main className="flex-1 p-8 overflow-y-auto">
+            <header className="mb-8">
+              <h2 className="text-2xl font-black text-white capitalize tracking-tight">
+                {abaAtiva}
+              </h2>
+              <p className="text-slate-400 text-sm">
+                Gerenciamento operacional e controle de inventário corporativo.
+              </p>
+            </header>
 
-          {/* 🏢 MAPA DE VAGAS EM REAL TIME ATIVADO NO APP */}
-          {abaAtiva === "vagas" && <VagasPanel />}
+            <div>
+              {abaAtiva === "produtos" && (
+                <ProdutosPanel
+                  onMovimentacaoSucesso={() => console.log("Estoque alterado!")}
+                />
+              )}
 
-          {abaAtiva === "auditoria" && (
-            <AuditoriaPanel />
-          )}
+              {abaAtiva === "vagas" && <VagasPanel />}
 
-          {abaAtiva === "dashboard" && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-500">
-              Os Gráficos de KPIs de Ocupação serão renderizados aqui...
+              {abaAtiva === "auditoria" && <AuditoriaPanel />}
+
+              {abaAtiva === "dashboard" && (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-500">
+                  Os Gráficos de KPIs de Ocupação serão renderizados aqui...
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </main>
+          </main>
+        </>
+      )}
     </div>
   );
 }

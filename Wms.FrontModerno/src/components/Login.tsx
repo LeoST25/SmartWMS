@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../services/api";
+import { toast } from "sonner";
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -25,16 +26,15 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
       if (response.status === 200) {
         const dados = response.data;
-
-        // Persistência segura da sessão no cliente
         localStorage.setItem("wms_token", dados.token);
         localStorage.setItem("wms_user", dados.usuario);
         localStorage.setItem("wms_role", dados.nivelAcesso);
 
+        toast.success(`Acesso autorizado! Bem vindo, ${dados.usuario}.`);
         onLoginSuccess();
       }
     } catch (error) {
-      alert("Falha na autenticação: Nome de usuário ou senha incorretos.");
+      toast.error("Falha na autenticação: Nome de usuário ou senha incorretos.");
     } finally {
       setCarregando(false);
     }
@@ -45,13 +45,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     e.preventDefault();
 
     if (username.trim().length < 3) {
-      alert(
-        "Regra de Segurança: O nome de usuário deve ter no mínimo 3 caracteres.",
-      );
+      toast.warning("O nome de usuário deve ter no mínimo 3 caracteres.");
       return;
     }
     if (password.length < 6) {
-      alert("Regra de Segurança: A senha deve possuir no mínimo 6 caracteres.");
+      toast.warning("A senha deve possuir no mínimo 6 caracteres.");
       return;
     }
 
@@ -64,8 +62,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       });
 
       if (response.status === 201) {
-        alert(
-          "Operador cadastrado com sucesso na base corporativa! Prossiga com o login.",
+        toast.success(
+          "Operador cadastrado com sucesso na base.",
         );
         setIsLogin(true);
       }
@@ -73,7 +71,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       const msg =
         error.response?.data ||
         "Erro interno ao processar registro do operador.";
-      alert(msg);
+      toast.error(msg);
     } finally {
       setCarregando(false);
     }
@@ -82,7 +80,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-950 p-4">
       <div className="w-full max-w-md rounded-2xl bg-slate-900 p-8 shadow-2xl border border-slate-800 transition-all duration-300">
-        {/* Identidade Visual */}
         <div className="text-center mb-8">
           <span className="text-5xl block mb-2">📦</span>
           <h2 className="text-3xl font-black tracking-tight text-white">
@@ -95,7 +92,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           </p>
         </div>
 
-        {/* Formulário Unificado com Alternância de Estado */}
         <form
           onSubmit={isLogin ? handleLogin : handleRegistro}
           className="space-y-5"
