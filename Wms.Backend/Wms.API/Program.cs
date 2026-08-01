@@ -8,36 +8,68 @@ using Wms.Infrastructure.Data;
 using Wms.Domain.Models;
 using WmsLogistica.Models;
 
-Environment.SetEnvironmentVariable("ASPNETCORE_URLS", "http://localhost:5000");
+// Configuração de portas dinâmicas para nuvem (Render)
+var portaRender = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(int.Parse(portaRender));
+});
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 1. Configuração Híbrida de Banco de Dados (SQLite Local / PostgreSQL na Nuvem)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
                        ?? Environment.GetEnvironmentVariable("DATABASE_URL");
 
-// 1. Configuração do Banco de Dados (SQLite)
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("Host="))
     {
-        // Se houver dados do PostgreSQL, usa o Npgsql
         options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Wms.API"));
     }
     else
     {
-        // Fallback de segurança para desenvolvimento local offline
         var bancoCaminho = Path.Combine(Path.GetTempPath(), "wms_clean.db");
         options.UseSqlite($"Data Source={bancoCaminho}");
     }
 });
 
+// 2. CONFIGURAÇÃO CORRETA DO CORS: Define uma política nomeada para evitar conflitos de construtor
+builder.Services.AddCors(options => 
+{
+    options.AddPolicy("WmsCorsPolicy", p => p
+        .AllowAnyOrigin()
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
+
+// 3. CONFIGURAÇÃO DE SEGURANÇA: Autenticação & Autorização JWT
+var key = Encoding.ASCII.GetBytes(TokenService.SecretKey);
+builder.Services.AddAuthentication(x =>
+{
+    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(x =>
+{
+    x.RequireHttpsMetadata = false;
+    x.SaveToken = true;
+    x.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(key),
+        ValidateIssuer = false,
+        ValidateAudience = false
+    };
+});
+
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
-builder.Services.AddAuthentication();
 
 var app = builder.Build();
 
-// Automação: Garante a criação do banco de dados ao iniciar
+// Automação de Infraestrutura: Inicialização de Banco e Seed
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -59,7 +91,9 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.UseCors();
+// CORREÇÃO CRÍTICA: Aplica a política nomeada de forma única, matando o erro do middleware duplicado
+app.UseCors("WmsCorsPolicy");
+
 app.UseAuthentication(); 
 app.UseAuthorization();
 
@@ -97,10 +131,9 @@ app.MapPost("/api/auth/login", async (LoginModel login, AppDbContext db) =>
 });
 
 // ========================================================
-// ROTAS LOGÍSTICAS (BLINDADAS COM REGRAS DE AUTORIZAÇÃO POR CARGO)
+// ROTAS LOGÍSTICAS (BLINDADAS COM REGRAS DE AUTORIZAÇÃO)
 // ========================================================
 
-// Qualquer usuário autenticado (Operador ou Gerente) pode visualizar produtos e vagas
 app.MapGet("/api/produtos", async (AppDbContext db) =>
     await db.Produtos.Include(p => p.Posicao).ToListAsync())
     .RequireAuthorization();
@@ -113,13 +146,12 @@ app.MapGet("/api/logistica/auditoria", async (AppDbContext db) =>
     await db.HistoricosMovimentacao.Where(h => !h.Arquivado).OrderByDescending(h => h.DataHora).ToListAsync())
     .RequireAuthorization();
 
-// REGRAS DE GERÊNCIA: Apenas usuários com a Role "Gerente" podem alterar a infraestrutura ou o estoque
 app.MapPost("/api/posicoes", async (PosicaoArmazem novaPosicao, AppDbContext db) =>
 {
     db.PosicoesArmazem.Add(novaPosicao);
     await db.SaveChangesAsync();
     return Results.Created($"/api/posicoes/{novaPosicao.Id}", novaPosicao);
-}).RequireAuthorization(p => p.RequireRole("Gerente")); // <-- TRAVA DE SEGURANÇA
+}).RequireAuthorization(p => p.RequireRole("Gerente"));
 
 app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpContext http) =>
 {
@@ -147,7 +179,7 @@ app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpCo
 
     await db.SaveChangesAsync();
     return Results.Created($"/api/produtos/{novoProduto.Id}", novoProduto);
-}).RequireAuthorization(p => p.RequireRole("Gerente")); // <-- TRAVA DE SEGURANÇA
+}).RequireAuthorization(p => p.RequireRole("Gerente"));
 
 app.MapPost("/api/logistica/auditoria/limpar", async (AppDbContext db) =>
 {
@@ -157,7 +189,7 @@ app.MapPost("/api/logistica/auditoria/limpar", async (AppDbContext db) =>
     foreach (var log in logsAtivos) { log.Arquivado = true; }
     await db.SaveChangesAsync();
     return Results.Ok(new { Mensagem = "Histórico operacional limpo." });
-}).RequireAuthorization(p => p.RequireRole("Gerente")); // <-- TRAVA DE SEGURANÇA
+}).RequireAuthorization(p => p.RequireRole("Gerente"));
 
 app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, HttpContext http) =>
 {
@@ -190,7 +222,7 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
     await db.SaveChangesAsync();
 
     return Results.Ok(new { Mensagem = $"Carga {sku} despachada com sucesso!" });
-}).RequireAuthorization(p => p.RequireRole("Gerente")); // <-- TRAVA DE SEGURANÇA BLOQUEANDO OPERADORES
+}).RequireAuthorization(p => p.RequireRole("Gerente"));
 
 app.Run();
 
