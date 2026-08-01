@@ -80,13 +80,11 @@ app.MapScalarApiReference(options => { options.WithTitle("Smart WMS - Clean & Se
 // ROTAS DE AUTENTICAÇÃO (PÚBLICAS)
 // ========================================================
 
-// Registro de novos usuários/operadores do galpão
 app.MapPost("/api/auth/registrar", async (Usuario novoUsuario, AppDbContext db) =>
 {
     var usuarioExiste = await db.Usuarios.AnyAsync(u => u.Username == novoUsuario.Username);
     if (usuarioExiste) return Results.BadRequest("Este nome de usuário já está em uso.");
 
-    // Criptografa a senha usando nosso utilitário antes de salvar no banco
     novoUsuario.PasswordHash = PasswordHasher.HashPassword(novoUsuario.PasswordHash);
 
     db.Usuarios.Add(novoUsuario);
@@ -95,13 +93,11 @@ app.MapPost("/api/auth/registrar", async (Usuario novoUsuario, AppDbContext db) 
     return Results.Created($"/api/auth/usuario/{novoUsuario.Id}", new { novoUsuario.Username, novoUsuario.Role });
 });
 
-// Endpoint de Login: Valida as credenciais e devolve o Token JWT
 app.MapPost("/api/auth/login", async (LoginModel login, AppDbContext db) =>
 {
     var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Username == login.Username);
     if (usuario == null) return Results.Unauthorized();
 
-    // Compara a senha digitada com o Hash salvo no banco
     var senhaValida = PasswordHasher.VerifyPassword(login.Password, usuario.PasswordHash);
     if (!senhaValida) return Results.Unauthorized();
 
@@ -116,9 +112,9 @@ app.MapPost("/api/auth/login", async (LoginModel login, AppDbContext db) =>
 
 app.MapGet("/api/produtos", async (AppDbContext db) =>
     await db.Produtos.Include(p => p.Posicao).ToListAsync())
-    .RequireAuthorization(); // Exige o Token no cabeçalho
+    .RequireAuthorization();
 
-    app.MapGet("/api/posicoes", async (AppDbContext db) =>
+app.MapGet("/api/posicoes", async (AppDbContext db) =>
     await db.PosicoesArmazem.ToListAsync())
     .RequireAuthorization();
 
@@ -134,7 +130,6 @@ app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpCo
     var posicaoLivre = await db.PosicoesArmazem.FirstOrDefaultAsync(p => !p.Ocupada);
     if (posicaoLivre == null) return Results.BadRequest("Não há vagas livres!");
 
-    // Descobre o nome do usuário autenticado que enviou o Token JWT
     var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
 
     posicaoLivre.Ocupada = true;
@@ -143,14 +138,13 @@ app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpCo
 
     db.Produtos.Add(novoProduto);
 
-    // GRAVAÇÃO NA AUDITORIA: Registra a entrada física
     var auditoria = new HistoricoMovimentacao
     {
         Sku = novoProduto.Sku,
         ProdutoNome = novoProduto.Nome,
         TipoMovimentacao = "ENTRADA",
         Quantidade = novoProduto.Quantidade,
-        EnderecoGalpao = posicaoLivre.CodigoEndereco,
+        EnderecoGalpao = $"{posicaoLivre.Corredor}-{posicaoLivre.Prateleira}-{posicaoLivre.Nivel}",
         UsuarioResponsavel = usuarioAtual
     };
     db.HistoricosMovimentacao.Add(auditoria);
@@ -159,19 +153,38 @@ app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpCo
     return Results.Created($"/api/produtos/{novoProduto.Id}", novoProduto);
 }).RequireAuthorization();
 
-// 2. NOVA ROTA: Relatório Geral de Auditoria de Cargas (Apenas para consulta dos Gerentes)
 app.MapGet("/api/logistica/auditoria", async (AppDbContext db) =>
 {
     var relatorio = await db.HistoricosMovimentacao
-        .OrderByDescending(h => h.DataHora) // Mostra as movimentações mais recentes primeiro
+        .Where(h => !h.Arquivado) // CORREÇÃO: Filtra para trazer apenas os logs ativos na tela
+        .OrderByDescending(h => h.DataHora) 
         .ToListAsync();
 
     return Results.Ok(relatorio);
 }).RequireAuthorization();
 
-app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db) =>
+app.MapPost("/api/logistica/auditoria/limpar", async (AppDbContext db) =>
 {
-    // Busca o produto trazendo os dados da vaga física associada
+    // Captura todas as movimentações que ainda aparecem na tela
+    var logsAtivos = await db.HistoricosMovimentacao.Where(h => !h.Arquivado).ToListAsync();
+    
+    if (!logsAtivos.Any()) return Results.Ok(new { Mensagem = "O histórico já está limpo!" });
+
+    // Varre a lista mudando o status para arquivado (Soft Delete)
+    foreach (var log in logsAtivos)
+    {
+        log.Arquivado = true;
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { Mensagem = "Histórico operacional limpo." });
+}).RequireAuthorization();
+
+// CORREÇÃO: Adicionado o parâmetro HttpContext http para capturar o usuário autenticado
+app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, HttpContext http) =>
+{
+    var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
+
     var produto = await db.Produtos
         .Include(p => p.Posicao)
         .FirstOrDefaultAsync(p => p.Sku.ToLower() == sku.ToLower());
@@ -181,16 +194,28 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db) =>
         return Results.NotFound($"Produto com SKU '{sku}' não localizado.");
     }
 
-    // Se o produto estiver em uma vaga, marca a vaga física como LIVRE
+    // CORREÇÃO: Montagem segura da string de endereço físico da vaga
+    string enderecoLiberado = produto.Posicao != null 
+        ? $"{produto.Posicao.Corredor}-{produto.Posicao.Prateleira}-{produto.Posicao.Nivel}" 
+        : "Doca";
+
+    var auditoriaSaida = new HistoricoMovimentacao
+    {
+        Sku = produto.Sku,
+        ProdutoNome = produto.Nome,
+        TipoMovimentacao = "SAÍDA", 
+        Quantidade = produto.Quantidade,
+        EnderecoGalpao = enderecoLiberado,
+        UsuarioResponsavel = usuarioAtual
+    };
+    db.HistoricosMovimentacao.Add(auditoriaSaida);
+    
     if (produto.Posicao != null)
     {
         produto.Posicao.Ocupada = false;
     }
 
-    // Remove o registro da mercadoria
     db.Produtos.Remove(produto);
-    
-    // Salva todas as alterações no SQLite de forma atômica
     await db.SaveChangesAsync();
 
     return Results.Ok(new { Mensagem = $"Carga {sku} despachada com sucesso!" });
@@ -198,5 +223,4 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db) =>
 
 app.Run();
 
-// DTOs (Data Transfer Objects) auxiliares para requisições limpas
 public record LoginModel(string Username, string Password);

@@ -9,7 +9,7 @@ public class HistoricoMovimentacao
     public int Quantidade { get; set; }
     public required string EnderecoGalpao { get; set; }
     public DateTime DataHora { get; set; } = DateTime.UtcNow;
-    
     // Identifica qual operador ou gerente realizou a ação
     public required string UsuarioResponsavel { get; set; } 
+    public bool Arquivado { get; set; } = false;
 }

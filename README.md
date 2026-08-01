@@ -1,39 +1,48 @@
-# 📦 Smart WMS - Sistema de Gestão de Armazém Inteligente
+# 📦 Smart WMS - Enterprise Warehouse Management System
 
-Este é um sistema de **Warehouse Management System (WMS)** focado em otimização logística de galpões e centros de distribuição, desenvolvido com as tecnologias mais modernas do ecossistema .NET.
+Um sistema avançado de gestão de armazém inteligente (WMS) e controle de fluxo logístico de alta performance, projetado com as melhores práticas de engenharia de software de mercado.
 
-## 🚀 Tecnologias Utilizadas
-* **C# 14 / .NET 10** (Minimal APIs e recursos modernos de sintaxe)
-* **Entity Framework Core** (Persistência de dados ágil)
-* **SQLite** (Banco de dados embarcado)
-* **Scalar OpenAPI** (Interface interativa moderna para documentação de rotas)
-* **xUnit & EF InMemory** (Arquitetura de testes unitários isolados)
+## 🏛️ Arquitetura e Design de Software
+O ecossistema foi totalmente fatiado utilizando o padrão **Clean Architecture (Arquitetura Limpa)**, desacoplando as regras de negócio logísticas das tecnologias de banco de dados e entrega web:
+* **`Wms.Domain`:** Entidades físicas de domínio puras (`Produto`, `PosicaoArmazem`, `Usuario`, `Historico`).
+* **`Wms.Application`:** Serviços inteligentes contendo as regras de negócio de *Putaway* e criptografia de credenciais.
+* **`Wms.Infrastructure`:** Persistência de dados com Entity Framework Core e banco de dados embarcado SQLite.
+* **`Wms.API`:** Camada de entrega REST configurada com Minimal APIs, documentação OpenAPI/Scalar e políticas de segurança.
 
-## 🧠 Recursos e Inteligência Logística
-1. **Algoritmo de Putaway Automático:** O sistema analisa as dimensões e o inventário atual e aloca automaticamente os produtos que chegam na primeira vaga física livre (Corredor/Prateleira/Nível) disponível no galpão.
-2. **Dashboard de Ocupação:** Endpoint gerencial que calcula em tempo real a taxa percentual de ocupação do armazém e emite alertas caso o galpão atinja níveis críticos de espaço.
-3. **Alertas de Reposição Crítica:** Monitoramento inteligente que compara o estoque atual com o limite mínimo de segurança, gerando relatórios de compras automatizados.
-4. **Auditoria por Logs:** Rastreabilidade completa de entrada, saída e reabastecimento de cargas com logs estruturados no terminal para auditorias de segurança.
+## 🛡️ Segurança e Auditoria Logística
+1. **Autenticação JWT (JSON Web Tokens):** Bloqueio e blindagem rigorosa de todos os endpoints logísticos, exigindo tokens criptografados com expiração automática.
+2. **Criptografia de Senhas (PBKDF2):** Proteção ponta a ponta contra ataques de força bruta, utilizando *Salts* aleatórios gerados de forma nativa via criptografia com `SHA256`.
+3. **Trilha de Auditoria Imutável:** Cada entrada e saída física no galpão registra permanentemente uma linha indelével contendo o operador responsável, carimbo de tempo no formato ISO e os endereços das vagas.
+4. **Mecanismo de Soft Delete:** Permite que gerentes limpem a tela operacional do histórico do armazém, alterando o estado lógico dos logs sem excluir os registros históricos fiscais do banco de dados.
 
-## 🔧 Como Rodar o Projeto Localmente
+## 🎨 Front-end Moderno (React + TypeScript)
+A interface de usuário foi migrada para uma SPA (Single Page Application) de alto padrão:
+* **Vite + React + TypeScript:** Tipagem estrita de contratos de dados espelhados do C#.
+* **Tailwind CSS v4:** Design corporativo premium com modo escuro nativo (*Slate 950*).
+* **Lucide React:** Ícones vetoriais de alta definição tipados para sinalização logística.
+* **Interceptador HTTP (Axios):** Gerenciamento inteligente de sessão que captura o Token JWT do navegador e o injeta automaticamente nos cabeçalhos de cada clique.
 
-1. Clone o repositório para sua máquina Linux:
+---
+
+## 🔧 Como Rodar o Ecossistema Localmente
+
+### 1. Clonar o Projeto
 ```bash
 git clone <link-do-seu-repositorio>
+cd SmartWMS
 ```
 
-2. Acesse a pasta da API principal e inicie o servidor:
+### 2. Iniciar o Back-end (C# .NET 10)
 ```bash
-cd "c#"
-dotnet run
+cd Wms.Backend
+dotnet run --project Wms.API
 ```
+👉 *Documentação interativa das rotas e cadeados de segurança:* `http://localhost:5000/scalar/v1`
 
-3. Acesse a interface visual do **Scalar** para testar as rotas com cliques:
-👉 `http://localhost:5000/scalar/v1`
-
-## 🧪 Como Rodar os Testes Automáticos
-Para garantir que nenhuma regra de negócio ou algoritmo foi quebrado, execute a suíte de testes unitários:
+### 3. Iniciar o Front-end (React + TS)
 ```bash
-cd "WmsLogistica.Tests"
-dotnet test
+cd ../Wms.FrontModerno
+npm install
+npm run dev
 ```
+👉 *Painel de controle visual do operador:* `http://localhost:5173`
