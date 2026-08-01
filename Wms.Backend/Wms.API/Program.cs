@@ -8,14 +8,15 @@ using Wms.Infrastructure.Data;
 using Wms.Domain.Models;
 using WmsLogistica.Models;
 
-// Configuração de portas dinâmicas para nuvem (Render)
+// CORREÇÃO DE ESCOPO: Primeiro instanciamos o Builder do WebApplication
+var builder = WebApplication.CreateBuilder(args);
+
+// CORREÇÃO CS0841: Agora configuramos o Kestrel lendo a instância declarada acima
 var portaRender = Environment.GetEnvironmentVariable("PORT") ?? "5000";
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ListenAnyIP(int.Parse(portaRender));
 });
-
-var builder = WebApplication.CreateBuilder(args);
 
 // 1. Configuração Híbrida de Banco de Dados (SQLite Local / PostgreSQL na Nuvem)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
@@ -34,7 +35,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     }
 });
 
-// 2. CONFIGURAÇÃO CORRETA DO CORS: Define uma política nomeada para evitar conflitos de construtor
+// 2. CONFIGURAÇÃO DO CORS
 builder.Services.AddCors(options => 
 {
     options.AddPolicy("WmsCorsPolicy", p => p
@@ -91,7 +92,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// CORREÇÃO CRÍTICA: Aplica a política nomeada de forma única, matando o erro do middleware duplicado
 app.UseCors("WmsCorsPolicy");
 
 app.UseAuthentication(); 
@@ -161,6 +161,7 @@ app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpCo
     var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
 
     posicaoLivre.Ocupada = true;
+    novoProduto.PoshemId = posicaoLivre.Id; // Nota: Mapeado internamente no relacionamento
     novoProduto.PosicaoArmazemId = posicaoLivre.Id;
     novoProduto.Posicao = null;
 
@@ -227,3 +228,4 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
 app.Run();
 
 public record LoginModel(string Username, string Password);
+    
