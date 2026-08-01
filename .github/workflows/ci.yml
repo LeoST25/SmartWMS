@@ -47,6 +47,9 @@ jobs:
       - name: Test
         run: dotnet test Wms.Backend/WmsSolution.slnx --configuration Release --no-build --collect:"XPlat Code Coverage"
 
+      - name: Build production container
+        run: docker build --tag smartwms-api:ci .
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
