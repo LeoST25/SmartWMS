@@ -206,24 +206,127 @@ app.MapGet("/api/logistica/auditoria", async (AppDbContext db) =>
     await db.HistoricosMovimentacao.Where(h => !h.Arquivado).OrderByDescending(h => h.DataHora).ToListAsync())
     .RequireAuthorization();
 
-app.MapPost("/api/posicoes", async (PosicaoArmazem novaPosicao, AppDbContext db) =>
+app.MapPost("/api/posicoes", async (CreatePositionModel request, AppDbContext db) =>
 {
+    var corredor = request.Corredor.Trim().ToUpperInvariant();
+    var errors = new Dictionary<string, string[]>();
+
+    if (corredor.Length is < 1 or > 2)
+    {
+        errors["corredor"] = ["O corredor deve possuir entre 1 e 2 caracteres."];
+    }
+
+    if (request.Prateleira <= 0)
+    {
+        errors["prateleira"] = ["A prateleira deve ser maior que zero."];
+    }
+
+    if (request.Nivel <= 0)
+    {
+        errors["nivel"] = ["O nível deve ser maior que zero."];
+    }
+
+    if (errors.Count > 0)
+    {
+        return Results.ValidationProblem(errors);
+    }
+
+    var posicaoExiste = await db.PosicoesArmazem.AnyAsync(p =>
+        p.Corredor.ToUpper() == corredor
+        && p.Prateleira == request.Prateleira
+        && p.Nivel == request.Nivel);
+
+    if (posicaoExiste)
+    {
+        return Results.Conflict("Esta posição física já está cadastrada.");
+    }
+
+    var novaPosicao = new PosicaoArmazem
+    {
+        Corredor = corredor,
+        Prateleira = request.Prateleira,
+        Nivel = request.Nivel,
+        Ocupada = false
+    };
+
     db.PosicoesArmazem.Add(novaPosicao);
-    await db.SaveChangesAsync();
+
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+        return Results.Conflict("Esta posição física já está cadastrada.");
+    }
+
     return Results.Created($"/api/posicoes/{novaPosicao.Id}", novaPosicao);
 }).RequireAuthorization(p => p.RequireRole("Gerente"));
 
-app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpContext http) =>
+app.MapPost("/api/produtos", async (CreateProductModel request, AppDbContext db, HttpContext http) =>
 {
-    var posicaoLivre = await db.PosicoesArmazem.FirstOrDefaultAsync(p => !p.Ocupada);
-    if (posicaoLivre == null) return Results.BadRequest("Não há vagas livres no galpão público!");
+    var nome = request.Nome.Trim();
+    var sku = request.Sku.Trim().ToUpperInvariant();
+    var errors = new Dictionary<string, string[]>();
 
-    var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
+    if (nome.Length is < 2 or > 200)
+    {
+        errors["nome"] = ["O nome deve possuir entre 2 e 200 caracteres."];
+    }
+
+    if (sku.Length is < 1 or > 64)
+    {
+        errors["sku"] = ["O SKU deve possuir entre 1 e 64 caracteres."];
+    }
+
+    if (request.Quantidade <= 0)
+    {
+        errors["quantidade"] = ["A quantidade deve ser maior que zero."];
+    }
+
+    if (!double.IsFinite(request.Peso) || request.Peso <= 0)
+    {
+        errors["peso"] = ["O peso deve ser um número maior que zero."];
+    }
+
+    if (request.EstoqueMinimo < 0)
+    {
+        errors["estoqueMinimo"] = ["O estoque mínimo não pode ser negativo."];
+    }
+
+    if (errors.Count > 0)
+    {
+        return Results.ValidationProblem(errors);
+    }
+
+    var skuExiste = await db.Produtos.AnyAsync(p => p.Sku.ToUpper() == sku);
+    if (skuExiste)
+    {
+        return Results.Conflict($"O SKU '{sku}' já está cadastrado.");
+    }
+
+    var posicaoLivre = await db.PosicoesArmazem
+        .OrderBy(p => p.Corredor)
+        .ThenBy(p => p.Prateleira)
+        .ThenBy(p => p.Nivel)
+        .FirstOrDefaultAsync(p => !p.Ocupada);
+
+    if (posicaoLivre == null)
+    {
+        return Results.Conflict("Não há vagas livres no armazém.");
+    }
+
+    var novoProduto = new Produto
+    {
+        Nome = nome,
+        Sku = sku,
+        Quantidade = request.Quantidade,
+        Peso = request.Peso,
+        EstoqueMinimo = request.EstoqueMinimo,
+        PosicaoArmazemId = posicaoLivre.Id
+    };
 
     posicaoLivre.Ocupada = true;
-    novoProduto.PosicaoArmazemId = posicaoLivre.Id;
-    novoProduto.Posicao = null;
-
     db.Produtos.Add(novoProduto);
 
     var auditoria = new HistoricoMovimentacao
@@ -232,12 +335,21 @@ app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpCo
         ProdutoNome = novoProduto.Nome,
         TipoMovimentacao = "ENTRADA",
         Quantidade = novoProduto.Quantidade,
-        EnderecoGalpao = $"{posicaoLivre.Corredor}-{posicaoLivre.Prateleira}-{posicaoLivre.Nivel}",
-        UsuarioResponsavel = usuarioAtual
+        EnderecoGalpao = posicaoLivre.CodigoEndereco,
+        UsuarioResponsavel = http.User.Identity?.Name ?? "Sistema"
     };
     db.HistoricosMovimentacao.Add(auditoria);
 
-    await db.SaveChangesAsync();
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+        return Results.Conflict(
+            "A operação conflitou com outra atualização de estoque. Sincronize e tente novamente.");
+    }
+
     return Results.Created($"/api/produtos/{novoProduto.Id}", novoProduto);
 }).RequireAuthorization(p => p.RequireRole("Gerente"));
 
@@ -255,9 +367,10 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
 {
     var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
 
+    var skuNormalizado = sku.Trim().ToUpper();
     var produto = await db.Produtos
         .Include(p => p.Posicao)
-        .FirstOrDefaultAsync(p => p.Sku.ToLower() == sku.ToLower());
+        .FirstOrDefaultAsync(p => p.Sku.ToUpper() == skuNormalizado);
 
     if (produto == null) return Results.NotFound($"Produto com SKU '{sku}' não localizado.");
 
@@ -332,3 +445,13 @@ static string NormalizePostgresConnectionString(string value)
 
 public sealed record RegisterModel(string Username, string Password);
 public sealed record LoginModel(string Username, string Password);
+public sealed record CreatePositionModel(
+    string Corredor,
+    int Prateleira,
+    int Nivel);
+public sealed record CreateProductModel(
+    string Nome,
+    string Sku,
+    int Quantidade,
+    double Peso,
+    int EstoqueMinimo);
