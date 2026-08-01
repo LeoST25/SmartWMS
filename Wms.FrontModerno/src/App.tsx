@@ -37,6 +37,19 @@ export default function App(): JSX.Element {
       setUsuario(user);
       setRole(userRole);
     }
+
+    const handleUnauthorized = (): void => {
+      setLogado(false);
+      setUsuario("");
+      setRole("");
+      setAbaAtiva("produtos");
+    };
+
+    window.addEventListener("wms:unauthorized", handleUnauthorized);
+
+    return () => {
+      window.removeEventListener("wms:unauthorized", handleUnauthorized);
+    };
   }, []);
 
   const handleLoginSuccess = (): void => {
