@@ -108,14 +108,17 @@ export default function App(): JSX.Element {
             <div>
               {abaAtiva === "produtos" && (
                 <ProdutosPanel
+                  canManage={role === "Gerente"}
                   onMovimentacaoSucesso={() => {
                     console.log("Estoque alterado!");
                   }}
                 />
               )}
 
-              {abaAtiva === "vagas" && <VagasPanel />}
-              {abaAtiva === "auditoria" && <AuditoriaPanel />}
+              {abaAtiva === "vagas" && <VagasPanel canManage={role === "Gerente"} />}
+              {abaAtiva === "auditoria" && (
+                <AuditoriaPanel canManage={role === "Gerente"} />
+              )}
               {abaAtiva === "dashboard" && <DashboardPanel />}
             </div>
           </main>

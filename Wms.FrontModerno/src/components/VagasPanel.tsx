@@ -11,7 +11,11 @@ import {
 import { toast } from "sonner";
 import { AxiosError } from "axios"; // Importação essencial para tipar os erros da API
 
-export default function VagasPanel() {
+interface VagasPanelProps {
+  canManage: boolean;
+}
+
+export default function VagasPanel({ canManage }: VagasPanelProps) {
   const [vagas, setVagas] = useState<PosicaoArmazem[]>([]);
   const [corredor, setCorredor] = useState("");
   const [prateleira, setPrateleira] = useState<number>(0);
@@ -89,6 +93,7 @@ export default function VagasPanel() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start animate-fade-in">
       {/* Formulário de Cadastro de Vagas */}
+      {canManage && (
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex items-center gap-2 mb-6">
           <LayoutGrid className="text-emerald-500" size={22} />
@@ -153,9 +158,12 @@ export default function VagasPanel() {
           </button>
         </form>
       </div>
+      )}
 
       {/* Grid de Visualização do Mapa de Posições */}
-      <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+      <div
+        className={`${canManage ? "lg:col-span-2" : "lg:col-span-3"} bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl`}
+      >
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold text-white">
             Mapa Físico de Endereçamento

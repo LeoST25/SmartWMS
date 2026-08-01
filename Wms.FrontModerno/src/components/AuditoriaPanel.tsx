@@ -11,7 +11,11 @@ import {
   ArchiveX,
 } from "lucide-react";
 
-export default function AuditoriaPanel() {
+interface AuditoriaPanelProps {
+  canManage: boolean;
+}
+
+export default function AuditoriaPanel({ canManage }: AuditoriaPanelProps) {
   const [historico, setHistorico] = useState<HistoricoMovimentacao[]>([]);
   const [carregando, setCarregando] = useState(false);
 
@@ -85,6 +89,7 @@ export default function AuditoriaPanel() {
             Sincronizar
           </button>
 
+          {canManage && (
           <button
             onClick={handleLimparHistorico}
             className="flex items-center gap-1.5 text-xs font-semibold text-rose-400 hover:text-white bg-slate-950 border border-slate-800 hover:border-rose-900 px-3 py-1.5 rounded-xl transition cursor-pointer hover:bg-rose-950/20"
@@ -92,6 +97,7 @@ export default function AuditoriaPanel() {
             <ArchiveX size={12} />
             Limpar Tela (Arquivar)
           </button>
+          )}
         </div>
       </div>
 
