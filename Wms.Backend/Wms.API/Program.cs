@@ -71,13 +71,28 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// ⚡ CORREÇÃO DE PERSISTÊNCIA INDUSTRIAL: Executa as Migrations e limpa códigos fixos (Hardcoded)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     
-    // Trocado EnsureCreated por Migrate() para gravar permanentemente no Supabase
-    db.Database.Migrate();
+    // Se estiver conectado ao PostgreSQL (Nuvem), aplica via Migrations estritas
+    if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+    {
+        db.Database.Migrate();
+    }
+    else
+    {
+        // Se estiver local no SQLite, tenta aplicar via migração ou cria via Fallback de segurança se as tabelas sumirem
+        try
+        {
+            db.Database.Migrate();
+        }
+        catch (Exception)
+        {
+            // Fallback de infraestrutura: Garante a criação física offline imediata se a migration falhar no SQLite local
+            db.Database.EnsureCreated();
+        }
+    }
 }
 
 app.UseCors("WmsCorsPolicy");
