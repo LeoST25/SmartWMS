@@ -4,9 +4,11 @@ import type { Produto } from "../types/wms";
 import {
   PackagePlus,
   RefreshCw,
+  Trash2,
   ShieldAlert,
   ArrowUpRight,
 } from "lucide-react";
+import { toast } from "sonner"; // <-- IMPORTAÇÃO DO EMISSOR DE NOTIFICAÇÕES ANIMADAS
 
 interface ProdutosPanelProps {
   onMovimentacaoSucesso: () => void;
@@ -23,13 +25,13 @@ export default function ProdutosPanel({
   const [estoqueMinimo, setEstoqueMinimo] = useState<number>(5);
   const [carregando, setCarregando] = useState(false);
 
-  // Busca os produtos tipados da API em C#
   const carregarProdutos = async () => {
     try {
       const resposta = await api.get<Produto[]>("/produtos");
       setProdutos(resposta.data);
     } catch (error) {
       console.error("Erro ao buscar produtos:", error);
+      toast.error("Erro de conexão ao sincronizar o estoque ativo.");
     }
   };
 
@@ -37,11 +39,13 @@ export default function ProdutosPanel({
     carregarProdutos();
   }, []);
 
-  // Processa a entrada de mercadoria (Putaway)
   const handlePutaway = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (quantidade <= 0 || peso <= 0) {
-      alert("Quantidade e peso devem ser maiores que zero.");
+      toast.warning(
+        "Operação Recusada: Quantidade e peso devem ser maiores que zero.",
+      );
       return;
     }
 
@@ -49,7 +53,7 @@ export default function ProdutosPanel({
     try {
       const novoProduto: Produto = {
         nome,
-        sku,
+        sku: sku.trim(),
         quantidade,
         peso,
         estoqueMinimo,
@@ -57,38 +61,53 @@ export default function ProdutosPanel({
       const resposta = await api.post("/produtos", novoProduto);
 
       if (resposta.status === 201) {
+        // TOAST 1: Emite o aviso de sucesso informando que o algoritmo alocou a carga
+        toast.success(
+          `Putaway Concluído: Item ${sku.toUpperCase()} alocado com sucesso!`,
+        );
+
         setNome("");
         setSku("");
         setQuantidade(0);
         setPeso(0);
         carregarProdutos();
-        onMovimentacaoSucesso(); // Atualiza dados globais como o Dashboard
+        onMovimentacaoSucesso();
       }
     } catch (error: any) {
-      const msgErro = error.response?.data || "Erro ao alocar produto.";
-      alert(msgErro);
+      const msgErro =
+        error.response?.data || "Erro de barramento ao alocar produto.";
+      // TOAST 2: Captura os erros de SKU duplicado ou armazém cheio vindos do C#
+      toast.error(msgErro);
     } finally {
       setCarregando(false);
     }
   };
 
-  // Despacha a carga do armazém e libera a vaga
   const handleDespachar = async (skuAlvo: string) => {
-    if (!confirm(`Confirmar a saída definitiva do SKU ${skuAlvo}?`)) return;
+    if (
+      !confirm(
+        `Confirmar a liberação física e saída definitiva do SKU ${skuAlvo}?`,
+      )
+    )
+      return;
 
     try {
       const resposta = await api.post(`/produtos/saida/${skuAlvo}`);
       if (resposta.status === 200) {
+        // TOAST 3: Confirma a baixa permanente na auditoria e no mapa
+        toast.success(
+          `Expedição Concluída: SKU ${skuAlvo} despachado com sucesso.`,
+        );
         carregarProdutos();
         onMovimentacaoSucesso();
       }
     } catch (error) {
-      alert("Não foi possível despachar a mercadoria.");
+      toast.error("Controle de Acesso: Falha ao executar despacho da carga.");
     }
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start animate-fade-in">
       {/* Formulário de Entrada (Putaway) */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex items-center gap-2 mb-6">
@@ -122,7 +141,7 @@ export default function ProdutosPanel({
               required
               value={sku}
               onChange={(e) => setSku(e.target.value)}
-              className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-sm text-white placeholder-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition"
+              className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-sm text-white placeholder-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition uppercase"
               placeholder="Ex: MON-IND-4K"
             />
           </div>
@@ -180,7 +199,7 @@ export default function ProdutosPanel({
         </form>
       </div>
 
-      {/* Tabela de Produtos */}
+      {/* Tabela de Inventário */}
       <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold text-white">
@@ -250,6 +269,8 @@ export default function ProdutosPanel({
                       <td className="py-4 font-mono font-bold text-blue-400 text-base">
                         {endereco}
                       </td>
+
+                      {/* Controle visual por nível de cargo */}
                       <td className="py-4 text-right">
                         {localStorage.getItem("wms_role") === "Gerente" ? (
                           <button
