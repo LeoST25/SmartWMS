@@ -11,4 +11,5 @@ public class Produto
     public int EstoqueMinimo { get; set;} = 5; // Padrão de 5 unidades se não for informado
     public int? PosicaoArmazemId { get; set; }
     public PosicaoArmazem? Posicao { get; set; }
+    public int PoshemId { get; set; }
 }
