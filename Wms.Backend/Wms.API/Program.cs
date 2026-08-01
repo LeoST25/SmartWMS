@@ -8,10 +8,9 @@ using Wms.Infrastructure.Data;
 using Wms.Domain.Models;
 using WmsLogistica.Models;
 
-// CORREÇÃO DE ESCOPO: Primeiro instanciamos o Builder do WebApplication
 var builder = WebApplication.CreateBuilder(args);
 
-// CORREÇÃO CS0841: Agora configuramos o Kestrel lendo a instância declarada acima
+// Configuração de portas dinâmicas para a nuvem do Render
 var portaRender = Environment.GetEnvironmentVariable("PORT") ?? "5000";
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -26,16 +25,18 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 {
     if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("Host="))
     {
+        // Configuração corporativa estável para o PostgreSQL
         options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Wms.API"));
     }
     else
     {
+        // Fallback local estável offline
         var bancoCaminho = Path.Combine(Path.GetTempPath(), "wms_clean.db");
         options.UseSqlite($"Data Source={bancoCaminho}");
     }
 });
 
-// 2. CONFIGURAÇÃO DO CORS
+// 2. Configuração do CORS
 builder.Services.AddCors(options => 
 {
     options.AddPolicy("WmsCorsPolicy", p => p
@@ -70,25 +71,27 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Automação de Infraestrutura: Inicialização de Banco e Seed
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
-
-    if (!db.PosicoesArmazem.Any())
+    
+    // Se estiver conectado ao PostgreSQL (Nuvem), aplica via Migrations estritas
+    if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
     {
-        var vagasPadrao = new List<PosicaoArmazem>
+        db.Database.Migrate();
+    }
+    else
+    {
+        // Se estiver local no SQLite, tenta aplicar via migração ou cria via Fallback de segurança se as tabelas sumirem
+        try
         {
-            new() { Corredor = "A", Prateleira = 1, Nivel = 1, Ocupada = false },
-            new() { Corredor = "A", Prateleira = 1, Nivel = 2, Ocupada = false },
-            new() { Corredor = "A", Prateleira = 2, Nivel = 1, Ocupada = false },
-            new() { Corredor = "B", Prateleira = 1, Nivel = 1, Ocupada = false },
-            new() { Corredor = "B", Prateleira = 1, Nivel = 2, Ocupada = false }
-        };
-
-        db.PosicoesArmazem.AddRange(vagasPadrao);
-        db.SaveChanges();
+            db.Database.Migrate();
+        }
+        catch (Exception)
+        {
+            // Fallback de infraestrutura: Garante a criação física offline imediata se a migration falhar no SQLite local
+            db.Database.EnsureCreated();
+        }
     }
 }
 
@@ -156,7 +159,7 @@ app.MapPost("/api/posicoes", async (PosicaoArmazem novaPosicao, AppDbContext db)
 app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpContext http) =>
 {
     var posicaoLivre = await db.PosicoesArmazem.FirstOrDefaultAsync(p => !p.Ocupada);
-    if (posicaoLivre == null) return Results.BadRequest("Não há vagas livres!");
+    if (posicaoLivre == null) return Results.BadRequest("Não há vagas livres no galpão público!");
 
     var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
 
