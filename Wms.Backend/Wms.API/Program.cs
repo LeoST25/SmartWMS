@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using Scalar.AspNetCore;
 using Wms.Application;
 using Wms.Infrastructure.Data;
@@ -18,21 +19,28 @@ builder.WebHost.ConfigureKestrel(options =>
     options.ListenAnyIP(int.Parse(portaRender));
 });
 
-// 1. Configuração Híbrida de Banco de Dados (SQLite Local / PostgreSQL na Nuvem)
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
-                       ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+// 1. Configuração híbrida de banco de dados (SQLite local / PostgreSQL na nuvem)
+var configuredConnectionString =
+    builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+
+var usePostgres = IsPostgresConnectionString(configuredConnectionString);
+var connectionString = usePostgres
+    ? NormalizePostgresConnectionString(configuredConnectionString!)
+    : configuredConnectionString
+      ?? $"Data Source={Path.Combine(Path.GetTempPath(), "wms_clean.db")}";
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("Host="))
+    if (usePostgres)
     {
-        options.UseNpgsql(connectionString, b => b.MigrationsAssembly("Wms.API"));
+        options.UseNpgsql(
+            connectionString,
+            postgres => postgres.MigrationsAssembly("Wms.API"));
+        return;
     }
-    else
-    {
-        var bancoCaminho = Path.Combine(Path.GetTempPath(), "wms_clean.db");
-        options.UseSqlite($"Data Source={bancoCaminho}");
-    }
+
+    options.UseSqlite(connectionString);
 });
 
 // 2. CORREÇÃO CRÍTICA DO CORS: Mapeamento explícito das origens de desenvolvimento e produção corporativa
@@ -94,19 +102,18 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// ⚡ Inicialização e Resiliência de Infraestrutura
+// Inicialização determinística da infraestrutura
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    
-    if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+
+    if (usePostgres)
     {
         db.Database.Migrate();
     }
     else
     {
-        try { db.Database.Migrate(); }
-        catch (Exception) { db.Database.EnsureCreated(); }
+        db.Database.EnsureCreated();
     }
 }
 
@@ -278,6 +285,50 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
 }).RequireAuthorization(p => p.RequireRole("Gerente"));
 
 app.Run();
+
+static bool IsPostgresConnectionString(string? value)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return false;
+    }
+
+    if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+    {
+        return uri.Scheme is "postgres" or "postgresql";
+    }
+
+    return value.Contains("Host=", StringComparison.OrdinalIgnoreCase)
+        || value.Contains("Server=", StringComparison.OrdinalIgnoreCase);
+}
+
+static string NormalizePostgresConnectionString(string value)
+{
+    if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        || uri.Scheme is not ("postgres" or "postgresql"))
+    {
+        return value;
+    }
+
+    var credentials = uri.UserInfo.Split(':', 2);
+    if (credentials.Length != 2)
+    {
+        throw new InvalidOperationException(
+            "DATABASE_URL deve conter usuário e senha para o PostgreSQL.");
+    }
+
+    var connection = new NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.IsDefaultPort ? 5432 : uri.Port,
+        Database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')),
+        Username = Uri.UnescapeDataString(credentials[0]),
+        Password = Uri.UnescapeDataString(credentials[1]),
+        SslMode = SslMode.Require
+    };
+
+    return connection.ConnectionString;
+}
 
 public sealed record RegisterModel(string Username, string Password);
 public sealed record LoginModel(string Username, string Password);
