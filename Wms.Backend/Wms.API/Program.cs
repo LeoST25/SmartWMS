@@ -181,6 +181,28 @@ app.MapScalarApiReference(options => { options.WithTitle("Smart WMS - Clean & Se
 // ROTAS DE AUTENTICAÇÃO (PÚBLICAS)
 // ========================================================
 
+app.MapGet("/health", async (
+    AppDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var databaseAvailable =
+        await db.Database.CanConnectAsync(cancellationToken);
+
+    return databaseAvailable
+        ? Results.Ok(new
+        {
+            status = "healthy",
+            database = "up"
+        })
+        : Results.Json(
+            new
+            {
+                status = "unhealthy",
+                database = "down"
+            },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+}).AllowAnonymous();
+
 app.MapPost("/api/auth/registrar", async (RegisterModel registro, AppDbContext db) =>
 {
     var username = registro.Username.Trim();
