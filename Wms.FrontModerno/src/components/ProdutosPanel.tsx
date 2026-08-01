@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../services/api";
 import type { Produto } from "../types/wms";
-import { PackagePlus, RefreshCw, Trash2, ShieldAlert, ArrowUpRight } from "lucide-react";
+import {
+  PackagePlus,
+  RefreshCw,
+  ShieldAlert,
+  ArrowUpRight,
+} from "lucide-react";
 
 interface ProdutosPanelProps {
   onMovimentacaoSucesso: () => void;
