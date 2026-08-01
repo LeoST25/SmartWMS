@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -299,58 +300,76 @@ app.MapPost("/api/produtos", async (CreateProductModel request, AppDbContext db,
         return Results.ValidationProblem(errors);
     }
 
-    var skuExiste = await db.Produtos.AnyAsync(p => p.Sku.ToUpper() == sku);
-    if (skuExiste)
-    {
-        return Results.Conflict($"O SKU '{sku}' já está cadastrado.");
-    }
-
-    var posicaoLivre = await db.PosicoesArmazem
-        .OrderBy(p => p.Corredor)
-        .ThenBy(p => p.Prateleira)
-        .ThenBy(p => p.Nivel)
-        .FirstOrDefaultAsync(p => !p.Ocupada);
-
-    if (posicaoLivre == null)
-    {
-        return Results.Conflict("Não há vagas livres no armazém.");
-    }
-
-    var novoProduto = new Produto
-    {
-        Nome = nome,
-        Sku = sku,
-        Quantidade = request.Quantidade,
-        Peso = request.Peso,
-        EstoqueMinimo = request.EstoqueMinimo,
-        PosicaoArmazemId = posicaoLivre.Id
-    };
-
-    posicaoLivre.Ocupada = true;
-    db.Produtos.Add(novoProduto);
-
-    var auditoria = new HistoricoMovimentacao
-    {
-        Sku = novoProduto.Sku,
-        ProdutoNome = novoProduto.Nome,
-        TipoMovimentacao = "ENTRADA",
-        Quantidade = novoProduto.Quantidade,
-        EnderecoGalpao = posicaoLivre.CodigoEndereco,
-        UsuarioResponsavel = http.User.Identity?.Name ?? "Sistema"
-    };
-    db.HistoricosMovimentacao.Add(auditoria);
+    await using var transaction = await db.Database.BeginTransactionAsync(
+        IsolationLevel.Serializable);
 
     try
     {
+        var skuExiste = await db.Produtos.AnyAsync(p => p.Sku.ToUpper() == sku);
+        if (skuExiste)
+        {
+            return Results.Conflict($"O SKU '{sku}' já está cadastrado.");
+        }
+
+        var posicaoLivre = await db.PosicoesArmazem
+            .OrderBy(p => p.Corredor)
+            .ThenBy(p => p.Prateleira)
+            .ThenBy(p => p.Nivel)
+            .FirstOrDefaultAsync(p => !p.Ocupada);
+
+        if (posicaoLivre == null)
+        {
+            return Results.Conflict("Não há vagas livres no armazém.");
+        }
+
+        var novoProduto = new Produto
+        {
+            Nome = nome,
+            Sku = sku,
+            Quantidade = request.Quantidade,
+            Peso = request.Peso,
+            EstoqueMinimo = request.EstoqueMinimo,
+            PosicaoArmazemId = posicaoLivre.Id
+        };
+
+        posicaoLivre.Ocupada = true;
+        db.Produtos.Add(novoProduto);
+
+        db.HistoricosMovimentacao.Add(new HistoricoMovimentacao
+        {
+            Sku = novoProduto.Sku,
+            ProdutoNome = novoProduto.Nome,
+            TipoMovimentacao = "ENTRADA",
+            Quantidade = novoProduto.Quantidade,
+            EnderecoGalpao = posicaoLivre.CodigoEndereco,
+            UsuarioResponsavel = http.User.Identity?.Name ?? "Sistema"
+        });
+
         await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        return Results.Created($"/api/produtos/{novoProduto.Id}", novoProduto);
+    }
+    catch (DbUpdateException exception)
+        when (exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.SerializationFailure
+        })
+    {
+        return Results.Conflict(
+            "O estoque foi atualizado simultaneamente. Sincronize e tente novamente.");
+    }
+    catch (PostgresException exception)
+        when (exception.SqlState == PostgresErrorCodes.SerializationFailure)
+    {
+        return Results.Conflict(
+            "O estoque foi atualizado simultaneamente. Sincronize e tente novamente.");
     }
     catch (DbUpdateException)
     {
         return Results.Conflict(
             "A operação conflitou com outra atualização de estoque. Sincronize e tente novamente.");
     }
-
-    return Results.Created($"/api/produtos/{novoProduto.Id}", novoProduto);
 }).RequireAuthorization(p => p.RequireRole("Gerente"));
 
 app.MapPost("/api/logistica/auditoria/limpar", async (AppDbContext db) =>
