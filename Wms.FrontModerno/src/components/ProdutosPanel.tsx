@@ -250,16 +250,23 @@ export default function ProdutosPanel({
                       <td className="py-4 font-mono font-bold text-blue-400 text-base">
                         {endereco}
                       </td>
+                      // Substitua o botão de despacho antigo por este que
+                      valida o cargo localmente:
                       <td className="py-4 text-right">
-                        <button
-                          onClick={() => handleDespachar(p.sku)}
-                          className="inline-flex items-center gap-1.5 bg-slate-950 hover:bg-rose-950/30 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-900 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer"
-                          title="Despachar Mercadoria da Doca"
-                        >
-                          {/* Mudamos o ícone e o texto para Despachar conforme solicitado */}
-                          <ArrowUpRight size={14} />
-                          Despachar
-                        </button>
+                        {localStorage.getItem("wms_role") === "Gerente" ? (
+                          <button
+                            onClick={() => handleDespachar(p.sku)}
+                            className="inline-flex items-center gap-1.5 bg-slate-950 hover:bg-rose-950/30 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-900 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer"
+                            title="Despachar Mercadoria da Doca"
+                          >
+                            <ArrowUpRight size={14} />
+                            Despachar
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-600 font-medium italic">
+                            Apenas Leitura
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

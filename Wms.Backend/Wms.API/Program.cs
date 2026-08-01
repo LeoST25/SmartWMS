@@ -8,40 +8,17 @@ using Wms.Infrastructure.Data;
 using Wms.Domain.Models;
 using WmsLogistica.Models;
 
+Environment.SetEnvironmentVariable("ASPNETCORE_URLS", "http://localhost:5000");
+
 var builder = WebApplication.CreateBuilder(args);
 
-var portaRender = Environment.GetEnvironmentVariable("PORT") ?? "5000";
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.ListenAnyIP(int.Parse(portaRender));
-});
-
 // 1. Configuração do Banco de Dados (SQLite)
-var bancoCaminho = Environment.GetEnvironmentVariable("DATABASE_PATH")
-    ?? Path.Combine(Path.GetTempPath(), "wms_clean.db");
-
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite($"Data Source={bancoCaminho}"));
+    options.UseSqlite("Data Source=wms_clean.db"));
 
-// 2. Configuração do CORS (Liberação restrita para o Front-end)
-const string politicaCors = "Frontend";
-
-var origensPermitidas = (
-    Environment.GetEnvironmentVariable("CORS_ORIGINS")
-    ?? "http://localhost:5173"
-)
-.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy(politicaCors, policy =>
-    {
-        policy
-            .WithOrigins(origensPermitidas)
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
-});
+// 2. Configuração do CORS (Liberação para o Front-end)
+builder.Services.AddCors(options => 
+    options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 // 3. CONFIGURAÇÃO DE SEGURANÇA: Autenticação JWT
 var key = Encoding.ASCII.GetBytes(TokenService.SecretKey);
@@ -75,7 +52,6 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
 
-    // Se não houver nenhuma vaga física cadastrada, cria automaticamente um setor inicial de testes
     if (!db.PosicoesArmazem.Any())
     {
         var vagasPadrao = new List<PosicaoArmazem>
@@ -92,8 +68,8 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.UseCors(politicaCors);
-app.UseAuthentication(); // Obrigatório antes do Authorization
+app.UseCors();
+app.UseAuthentication(); 
 app.UseAuthorization();
 
 app.MapOpenApi();
@@ -130,9 +106,10 @@ app.MapPost("/api/auth/login", async (LoginModel login, AppDbContext db) =>
 });
 
 // ========================================================
-// ROTAS LOGÍSTICAS (BLINDADAS COM AUTENTICAÇÃO)
+// ROTAS LOGÍSTICAS (BLINDADAS COM REGRAS DE AUTORIZAÇÃO POR CARGO)
 // ========================================================
 
+// Qualquer usuário autenticado (Operador ou Gerente) pode visualizar produtos e vagas
 app.MapGet("/api/produtos", async (AppDbContext db) =>
     await db.Produtos.Include(p => p.Posicao).ToListAsync())
     .RequireAuthorization();
@@ -141,12 +118,17 @@ app.MapGet("/api/posicoes", async (AppDbContext db) =>
     await db.PosicoesArmazem.ToListAsync())
     .RequireAuthorization();
 
+app.MapGet("/api/logistica/auditoria", async (AppDbContext db) =>
+    await db.HistoricosMovimentacao.Where(h => !h.Arquivado).OrderByDescending(h => h.DataHora).ToListAsync())
+    .RequireAuthorization();
+
+// REGRAS DE GERÊNCIA: Apenas usuários com a Role "Gerente" podem alterar a infraestrutura ou o estoque
 app.MapPost("/api/posicoes", async (PosicaoArmazem novaPosicao, AppDbContext db) =>
 {
     db.PosicoesArmazem.Add(novaPosicao);
     await db.SaveChangesAsync();
     return Results.Created($"/api/posicoes/{novaPosicao.Id}", novaPosicao);
-}).RequireAuthorization();
+}).RequireAuthorization(p => p.RequireRole("Gerente")); // <-- TRAVA DE SEGURANÇA
 
 app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpContext http) =>
 {
@@ -174,36 +156,18 @@ app.MapPost("/api/produtos", async (Produto novoProduto, AppDbContext db, HttpCo
 
     await db.SaveChangesAsync();
     return Results.Created($"/api/produtos/{novoProduto.Id}", novoProduto);
-}).RequireAuthorization();
-
-app.MapGet("/api/logistica/auditoria", async (AppDbContext db) =>
-{
-    var relatorio = await db.HistoricosMovimentacao
-        .Where(h => !h.Arquivado) // CORREÇÃO: Filtra para trazer apenas os logs ativos na tela
-        .OrderByDescending(h => h.DataHora) 
-        .ToListAsync();
-
-    return Results.Ok(relatorio);
-}).RequireAuthorization();
+}).RequireAuthorization(p => p.RequireRole("Gerente")); // <-- TRAVA DE SEGURANÇA
 
 app.MapPost("/api/logistica/auditoria/limpar", async (AppDbContext db) =>
 {
-    // Captura todas as movimentações que ainda aparecem na tela
     var logsAtivos = await db.HistoricosMovimentacao.Where(h => !h.Arquivado).ToListAsync();
-    
     if (!logsAtivos.Any()) return Results.Ok(new { Mensagem = "O histórico já está limpo!" });
 
-    // Varre a lista mudando o status para arquivado (Soft Delete)
-    foreach (var log in logsAtivos)
-    {
-        log.Arquivado = true;
-    }
-
+    foreach (var log in logsAtivos) { log.Arquivado = true; }
     await db.SaveChangesAsync();
     return Results.Ok(new { Mensagem = "Histórico operacional limpo." });
-}).RequireAuthorization();
+}).RequireAuthorization(p => p.RequireRole("Gerente")); // <-- TRAVA DE SEGURANÇA
 
-// CORREÇÃO: Adicionado o parâmetro HttpContext http para capturar o usuário autenticado
 app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, HttpContext http) =>
 {
     var usuarioAtual = http.User.Identity?.Name ?? "Sistema";
@@ -212,12 +176,8 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
         .Include(p => p.Posicao)
         .FirstOrDefaultAsync(p => p.Sku.ToLower() == sku.ToLower());
 
-    if (produto == null)
-    {
-        return Results.NotFound($"Produto com SKU '{sku}' não localizado.");
-    }
+    if (produto == null) return Results.NotFound($"Produto com SKU '{sku}' não localizado.");
 
-    // CORREÇÃO: Montagem segura da string de endereço físico da vaga
     string enderecoLiberado = produto.Posicao != null 
         ? $"{produto.Posicao.Corredor}-{produto.Posicao.Prateleira}-{produto.Posicao.Nivel}" 
         : "Doca";
@@ -233,16 +193,13 @@ app.MapPost("/api/produtos/saida/{sku}", async (string sku, AppDbContext db, Htt
     };
     db.HistoricosMovimentacao.Add(auditoriaSaida);
     
-    if (produto.Posicao != null)
-    {
-        produto.Posicao.Ocupada = false;
-    }
+    if (produto.Posicao != null) { produto.Posicao.Ocupada = false; }
 
     db.Produtos.Remove(produto);
     await db.SaveChangesAsync();
 
     return Results.Ok(new { Mensagem = $"Carga {sku} despachada com sucesso!" });
-}).RequireAuthorization();
+}).RequireAuthorization(p => p.RequireRole("Gerente")); // <-- TRAVA DE SEGURANÇA BLOQUEANDO OPERADORES
 
 app.Run();
 
