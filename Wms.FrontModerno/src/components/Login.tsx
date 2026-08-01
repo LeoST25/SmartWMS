@@ -10,7 +10,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("Operador");
   const [carregando, setCarregando] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -48,8 +47,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       toast.warning("O nome de usuário deve conter no mínimo 3 caracteres.");
       return;
     }
-    if (password.length < 6) {
-      toast.warning("A senha corporativa deve conter no mínimo 6 caracteres.");
+    if (password.length < 8) {
+      toast.warning("A senha corporativa deve conter no mínimo 8 caracteres.");
       return;
     }
 
@@ -57,8 +56,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     try {
       const response = await api.post("/auth/registrar", {
         username: username.trim(),
-        passwordHash: password,
-        role,
+        password,
       });
 
       if (response.status === 201) {
@@ -119,32 +117,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             <input
               type="password"
               required
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-sm text-white placeholder-slate-600 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition"
               placeholder="••••••••"
             />
           </div>
-
-          {!isLogin && (
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Nível de Autorização (Role)
-              </label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-sm text-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition cursor-pointer"
-              >
-                <option value="Operador">
-                  Operador Logístico (Leitura de Inventário)
-                </option>
-                <option value="Gerente">
-                  Gerente de Inventário (Acesso Administrativo Total)
-                </option>
-              </select>
-            </div>
-          )}
 
           <button
             type="submit"
