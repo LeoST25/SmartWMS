@@ -2,13 +2,12 @@
 **/bin/
 **/obj/
 
-# Banco de dados local (gerado dinamicamente)
-**/wms.db
+# Bancos de dados e backups locais (podem conter dados operacionais ou credenciais)
+**/*.db
+**/*.db-*
+**/*.db.backup
 
 # Configurações do VS Code ou IDEs
 .vscode/
 .idea/
 *.user
-wms_clean.db
-wms_clean.db-shm
-wms_clean.db-wal
